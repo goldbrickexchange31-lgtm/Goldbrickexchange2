@@ -1,0 +1,182 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "User profile and financial data",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "displayName": { "type": "string" },
+        "profilePic": { "type": "string" },
+        "balance": { "type": "number" },
+        "totalProfit": { "type": "number" },
+        "totalInvested": { "type": "number" },
+        "referralEarnings": { "type": "number" },
+        "referralCode": { "type": "string" },
+        "referredBy": { "type": "string" },
+        "role": { "type": "string", "enum": ["user", "admin"] },
+        "status": { "type": "string", "enum": ["active", "suspended"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "balance", "role", "status", "createdAt"]
+    },
+    "Investment": {
+      "title": "Investment",
+      "description": "User investment records",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "userEmail": { "type": "string" },
+        "planId": { "type": "string" },
+        "planName": { "type": "string" },
+        "amount": { "type": "number" },
+        "minDeposit": { "type": "number" },
+        "profit": { "type": "number" },
+        "profitValue": { "type": "number" },
+        "profitType": { "type": "string" },
+        "expectedReturn": { "type": "number" },
+        "status": { "type": "string", "enum": ["active", "completed"] },
+        "durationDays": { "type": "number" },
+        "durationHours": { "type": "number" },
+        "expiresAt": { "type": "string", "format": "date-time" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "amount", "status", "createdAt"]
+    },
+    "Transaction": {
+      "title": "Transaction",
+      "description": "Deposits and withdrawals",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "userEmail": { "type": "string" },
+        "type": { "type": "string", "enum": ["deposit", "withdrawal", "investment", "referral_bonus"] },
+        "amount": { "type": "number" },
+        "status": { "type": "string", "enum": ["pending", "approved", "rejected"] },
+        "description": { "type": "string" },
+        "receiptUrl": { "type": "string" },
+        "walletAddress": { "type": "string" },
+        "txHash": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "type", "amount", "status", "createdAt"]
+    },
+    "InvestmentPlan": {
+      "title": "Plan",
+      "description": "Available investment packages",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "minDeposit": { "type": "number" },
+        "maxDeposit": { "type": "number" },
+        "profitType": { "type": "string", "enum": ["percentage", "fixed"] },
+        "profitValue": { "type": "number" },
+        "durationDays": { "type": "number" },
+        "durationHours": { "type": "number" }
+      }
+    },
+    "Wallet": {
+      "title": "Wallet",
+      "description": "Admin collection addresses",
+      "type": "object",
+      "properties": {
+        "currency": { "type": "string" },
+        "symbol": { "type": "string" },
+        "address": { "type": "string" },
+        "network": { "type": "string" }
+      }
+    },
+    "AdminConfig": {
+      "title": "Admin Config",
+      "description": "Global platform settings",
+      "type": "object",
+      "properties": {
+        "minWithdrawal": { "type": "number" },
+        "maxWithdrawal": { "type": "number" },
+        "referralBonus": { "type": "number" },
+        "withdrawalFeePercent": { "type": "number" },
+        "whatsappLink": { "type": "string" }
+      }
+    },
+    "ChatMessage": {
+      "title": "Chat Message",
+      "description": "A single message in a support chat",
+      "type": "object",
+      "properties": {
+        "text": { "type": "string" },
+        "senderId": { "type": "string" },
+        "senderName": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      }
+    },
+    "Visitor": {
+      "title": "Visitor",
+      "description": "Visitor geolocation and telemetry data",
+      "type": "object",
+      "properties": {
+        "visitorId": { "type": "string" },
+        "sessionId": { "type": "string" },
+        "ipAddress": { "type": "string" },
+        "country": { "type": "string" },
+        "region": { "type": "string" },
+        "city": { "type": "string" },
+        "latitude": { "type": "number" },
+        "longitude": { "type": "number" },
+        "isp": { "type": "string" },
+        "device": { "type": "string" },
+        "browser": { "type": "string" },
+        "os": { "type": "string" },
+        "referrer": { "type": "string" },
+        "currentPage": { "type": "string" },
+        "firstSeen": { "type": "string", "format": "date-time" },
+        "lastSeen": { "type": "string", "format": "date-time" },
+        "isOnline": { "type": "boolean" }
+      }
+    }
+  },
+  "firestore": {
+    "/visitors/{visitorId}": {
+      "schema": "Visitor",
+      "description": "Visitor logs accessible to admin only"
+    },
+    "/visitor_notifications/{notificationId}": {
+      "schema": "object",
+      "description": "Real-time visitor alert events for admin dashboard"
+    },
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "User profile"
+    },
+    "/investments/{investmentId}": {
+      "schema": "Investment",
+      "description": "Investment instances"
+    },
+    "/transactions/{transactionId}": {
+      "schema": "Transaction",
+      "description": "Deposit/Withdrawal history"
+    },
+    "/plans/{planId}": {
+      "schema": "InvestmentPlan",
+      "description": "Mining plans"
+    },
+    "/wallets/{walletId}": {
+      "schema": "Wallet",
+      "description": "Admin crypto wallets"
+    },
+    "/config/general": {
+      "schema": "AdminConfig",
+      "description": "Platform configuration"
+    },
+    "/chats/{userId}": {
+      "schema": "object",
+      "description": "Chat metadata"
+    },
+    "/chats/{userId}/messages/{messageId}": {
+      "schema": "ChatMessage",
+      "description": "Chat messages"
+    }
+  }
+}

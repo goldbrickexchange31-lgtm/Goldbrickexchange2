@@ -1,0 +1,6 @@
+{
+  "name": "Remix GoldBrick Exchange",
+  "description": "Premium Gold Mining \u0026 Crypto Investment Platform with Live Visitor Geolocation and Analytics",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
