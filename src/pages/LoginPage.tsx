@@ -10,13 +10,18 @@ import { auth } from '../lib/firebase';
 import { signInWithEmailAndPassword } from 'firebase/auth';
 import { ForgotPasswordModal } from '../components/ForgotPasswordModal';
 import { Eye, EyeOff, Loader2, KeyRound } from 'lucide-react';
+import { GoogleIcon } from '../components/GoogleIcon';
+import { loginOrSignUpWithGoogle, formatGoogleAuthError } from '../lib/googleAuth';
+import { AuthorizedDomainModal } from '../components/AuthorizedDomainModal';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
   const [isForgotOpen, setIsForgotOpen] = useState(false);
+  const [showDomainModal, setShowDomainModal] = useState(false);
 
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -49,7 +54,7 @@ export default function LoginPage() {
       toast.success('Welcome back to GoldBrick');
       navigate('/dashboard');
     } catch (error: any) {
-      console.error('Login error:', error);
+      console.warn('Login attempt failed:', error?.code || error?.message || error);
       let message = error.message || 'Login failed';
       if (error.code === 'auth/invalid-credential' || error.code === 'auth/wrong-password' || error.code === 'auth/user-not-found') {
         message = 'Invalid email or password. If you forgot your password, click "Forgot Password?" below.';
@@ -59,6 +64,26 @@ export default function LoginPage() {
       toast.error(message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleGoogleSignIn = async () => {
+    setGoogleLoading(true);
+    try {
+      const user = await loginOrSignUpWithGoogle();
+      toast.success(`Welcome, ${user.displayName || 'Investor'}!`);
+      navigate('/dashboard');
+    } catch (error: any) {
+      if (error?.code === 'auth/unauthorized-domain') {
+        console.warn('Google Sign-In: Domain not yet allowlisted in Firebase project');
+        setShowDomainModal(true);
+      } else {
+        console.warn('Google Sign-In notice:', error?.code || error?.message || error);
+        const friendlyMsg = formatGoogleAuthError(error);
+        toast.error(friendlyMsg);
+      }
+    } finally {
+      setGoogleLoading(false);
     }
   };
 
@@ -110,6 +135,36 @@ export default function LoginPage() {
           </p>
         </CardHeader>
         <CardContent className="p-10 pt-6">
+          {/* One-Click Google Sign In */}
+          <Button
+            type="button"
+            variant="outline"
+            onClick={handleGoogleSignIn}
+            disabled={googleLoading || loading}
+            className="w-full h-14 rounded-2xl border-white/10 bg-white/5 hover:bg-white/10 text-white font-bold text-sm flex items-center justify-center gap-3 transition-all hover:scale-[1.01] active:scale-[0.99] shadow-md cursor-pointer mb-6"
+          >
+            {googleLoading ? (
+              <span className="flex items-center gap-2">
+                <Loader2 className="w-4 h-4 animate-spin text-primary" />
+                Connecting with Google...
+              </span>
+            ) : (
+              <>
+                <GoogleIcon className="w-5 h-5 shrink-0" />
+                <span>Continue with Google</span>
+              </>
+            )}
+          </Button>
+
+          <div className="relative my-6 text-center">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t border-white/10" />
+            </div>
+            <div className="relative flex justify-center text-[10px] uppercase font-black tracking-widest">
+              <span className="bg-card px-4 text-white/40">Or continue with email</span>
+            </div>
+          </div>
+
           <form onSubmit={handleLogin} className="space-y-6">
             <div className="space-y-3">
               <Label className="text-[10px] font-black uppercase text-white/40 tracking-widest">
@@ -203,6 +258,13 @@ export default function LoginPage() {
         onSuccessLogin={handlePasswordResetSuccess}
         initialOobCode={oobCode}
         initialMode={mode}
+      />
+
+      {/* Authorized Domain Modal for Firebase Configuration */}
+      <AuthorizedDomainModal
+        isOpen={showDomainModal}
+        onOpenChange={setShowDomainModal}
+        actionType="google"
       />
     </div>
   );

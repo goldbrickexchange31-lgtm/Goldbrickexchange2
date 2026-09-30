@@ -64,13 +64,22 @@ export function ForgotPasswordModal({
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
-  // Sync defaultEmail when modal opens
+  // Sync defaultEmail and restore cooldown when modal opens
   useEffect(() => {
     if (isOpen) {
       setErrorMessage(null);
       if (defaultEmail && !email) {
         setEmail(defaultEmail);
       }
+      try {
+        const saved = localStorage.getItem('goldbrick_pwd_reset_cooldown_ts');
+        if (saved) {
+          const elapsed = Math.floor((Date.now() - parseInt(saved, 10)) / 1000);
+          if (elapsed < 60) {
+            setCooldown(60 - elapsed);
+          }
+        }
+      } catch (_) {}
     }
   }, [isOpen, defaultEmail]);
 
@@ -106,7 +115,7 @@ export function ForgotPasswordModal({
       setVerifiedEmail(userEmail);
       setView('reset');
     } catch (err: any) {
-      console.error('Password reset code verification failed:', err);
+      console.warn('Password reset code verification failed:', err?.code || err?.message || err);
       setCodeInvalid(true);
       setErrorMessage(
         'The password reset link is invalid, expired, or has already been used. Please request a new one.'
@@ -131,6 +140,13 @@ export function ForgotPasswordModal({
       return;
     }
 
+    if (cooldown > 0) {
+      const waitMsg = `Please wait ${cooldown}s before requesting another reset email.`;
+      setErrorMessage(waitMsg);
+      toast.warning(waitMsg);
+      return;
+    }
+
     setLoading(true);
     setErrorMessage(null);
 
@@ -140,19 +156,42 @@ export function ForgotPasswordModal({
         handleCodeInApp: true,
       };
 
-      await sendPasswordResetEmail(auth, cleanEmail, actionCodeSettings);
+      try {
+        await sendPasswordResetEmail(auth, cleanEmail, actionCodeSettings);
+      } catch (sendErr: any) {
+        if (sendErr.code === 'auth/unauthorized-continue-uri') {
+          console.warn('[RESET] Custom continue URI not yet authorized in Firebase Console. Falling back to standard reset email.');
+          await sendPasswordResetEmail(auth, cleanEmail);
+        } else {
+          throw sendErr;
+        }
+      }
+
       setView('sent');
       setCooldown(60);
-      toast.success('In-website password reset link sent to your email');
+      try {
+        localStorage.setItem('goldbrick_pwd_reset_cooldown_ts', Date.now().toString());
+      } catch (_) {}
+      toast.success('Password reset link sent to your email');
     } catch (err: any) {
-      console.error('Password reset error:', err);
+      if (err.code === 'auth/too-many-requests') {
+        console.warn('[RESET] Rate limit reached on Firebase Auth (auth/too-many-requests).');
+        setCooldown(60);
+        try {
+          localStorage.setItem('goldbrick_pwd_reset_cooldown_ts', Date.now().toString());
+        } catch (_) {}
+        const limitMsg = 'Too many requests. Firebase has temporarily paused reset emails from this device for your security. Please wait a minute and check your inbox or spam folder.';
+        setErrorMessage(limitMsg);
+        toast.warning('Please wait a minute before requesting another password reset.');
+        return;
+      }
+
+      console.warn('Password reset request notice:', err?.code || err?.message || err);
       let message = 'Failed to send password reset email. Please try again.';
       if (err.code === 'auth/user-not-found') {
         message = 'No account found with this email address. Please verify your email or create a new account.';
       } else if (err.code === 'auth/invalid-email') {
         message = 'The email address format is invalid.';
-      } else if (err.code === 'auth/too-many-requests') {
-        message = 'Too many requests. Please wait a few moments before trying again.';
       } else if (err.code === 'auth/network-request-failed') {
         message = 'Network connection error. Please check your internet connection.';
       } else if (err.message) {
@@ -193,7 +232,7 @@ export function ForgotPasswordModal({
       }
       handleClose();
     } catch (err: any) {
-      console.error('Error confirming password reset:', err);
+      console.warn('Error confirming password reset:', err?.code || err?.message || err);
       let message = 'Failed to reset password. The link may have expired.';
       if (err.code === 'auth/expired-action-code') {
         message = 'This reset link has expired. Please request a new password reset link.';
@@ -287,13 +326,18 @@ export function ForgotPasswordModal({
               <div className="pt-2 space-y-3">
                 <Button
                   type="submit"
-                  disabled={loading}
-                  className="w-full bg-primary text-primary-foreground font-black h-14 rounded-2xl shadow-lg shadow-primary/20 hover:scale-[1.02] active:scale-[0.98] transition-all uppercase text-xs tracking-wider cursor-pointer"
+                  disabled={loading || cooldown > 0}
+                  className="w-full bg-primary text-primary-foreground font-black h-14 rounded-2xl shadow-lg shadow-primary/20 hover:scale-[1.02] active:scale-[0.98] transition-all uppercase text-xs tracking-wider cursor-pointer disabled:opacity-50"
                 >
                   {loading ? (
                     <span className="flex items-center gap-2">
                       <Loader2 className="w-4 h-4 animate-spin" />
                       Sending Recovery Link...
+                    </span>
+                  ) : cooldown > 0 ? (
+                    <span className="flex items-center gap-2">
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      Please wait {cooldown}s...
                     </span>
                   ) : (
                     'Send Password Reset Link'

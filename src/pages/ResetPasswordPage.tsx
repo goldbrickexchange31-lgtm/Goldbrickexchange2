@@ -56,6 +56,18 @@ export default function ResetPasswordPage() {
 
   // Cooldown countdown timer
   useEffect(() => {
+    try {
+      const saved = localStorage.getItem('goldbrick_pwd_reset_cooldown_ts');
+      if (saved) {
+        const elapsed = Math.floor((Date.now() - parseInt(saved, 10)) / 1000);
+        if (elapsed < 60) {
+          setCooldown(60 - elapsed);
+        }
+      }
+    } catch (_) {}
+  }, []);
+
+  useEffect(() => {
     if (cooldown <= 0) return;
     const timer = setInterval(() => {
       setCooldown((prev) => (prev <= 1 ? 0 : prev - 1));
@@ -80,7 +92,7 @@ export default function ResetPasswordPage() {
       setVerifiedEmail(email);
       setView('form');
     } catch (err: any) {
-      console.error('[RESET] Code verification failed:', err);
+      console.warn('[RESET] Code verification failed:', err?.code || err?.message || err);
       let message = 'This password reset link is invalid, expired, or has already been used.';
       if (err.code === 'auth/expired-action-code') {
         message = 'This password reset link has expired. For your security, links are valid for 1 hour.';
@@ -155,7 +167,7 @@ export default function ResetPasswordPage() {
         navigate(`/login?email=${encodeURIComponent(verifiedEmail)}`);
       }, 3500);
     } catch (err: any) {
-      console.error('[RESET] Failed to confirm password reset:', err);
+      console.warn('[RESET] Confirm password reset notice:', err?.code || err?.message || err);
       let message = 'Failed to reset password. The link may have expired.';
       if (err.code === 'auth/expired-action-code') {
         message = 'This reset link has expired. Please request a new one.';
@@ -179,6 +191,13 @@ export default function ResetPasswordPage() {
       return;
     }
 
+    if (cooldown > 0) {
+      const waitMsg = `Please wait ${cooldown}s before requesting another reset email.`;
+      setErrorMessage(waitMsg);
+      toast.warning(waitMsg);
+      return;
+    }
+
     setLoading(true);
     setErrorMessage(null);
 
@@ -189,19 +208,42 @@ export default function ResetPasswordPage() {
         handleCodeInApp: true,
       };
 
-      await sendPasswordResetEmail(auth, cleanEmail, actionCodeSettings);
+      try {
+        await sendPasswordResetEmail(auth, cleanEmail, actionCodeSettings);
+      } catch (sendErr: any) {
+        if (sendErr.code === 'auth/unauthorized-continue-uri') {
+          console.warn('[RESET] Custom continue URI not yet authorized in Firebase Console. Falling back to standard reset email.');
+          await sendPasswordResetEmail(auth, cleanEmail);
+        } else {
+          throw sendErr;
+        }
+      }
+
       setEmailSent(true);
       setCooldown(60);
+      try {
+        localStorage.setItem('goldbrick_pwd_reset_cooldown_ts', Date.now().toString());
+      } catch (_) {}
       toast.success('Password reset instructions sent!');
     } catch (err: any) {
-      console.error('[RESET] Request failed:', err);
+      if (err?.code === 'auth/too-many-requests') {
+        console.warn('[RESET] Rate limit reached on Firebase Auth (auth/too-many-requests).');
+        setCooldown(60);
+        try {
+          localStorage.setItem('goldbrick_pwd_reset_cooldown_ts', Date.now().toString());
+        } catch (_) {}
+        const limitMsg = 'Too many requests. Firebase has temporarily paused reset emails from this device for your security. Please wait a minute and check your inbox or spam folder.';
+        setErrorMessage(limitMsg);
+        toast.warning('Please wait a minute before requesting another password reset.');
+        return;
+      }
+
+      console.warn('[RESET] Request notice:', err?.code || err?.message || err);
       let message = 'Failed to send reset email. Please try again.';
       if (err.code === 'auth/user-not-found') {
         message = 'No account found with this email. Please check your spelling or register.';
       } else if (err.code === 'auth/invalid-email') {
         message = 'Please provide a valid email format (e.g. name@example.com).';
-      } else if (err.code === 'auth/too-many-requests') {
-        message = 'Too many requests. Please wait a minute before requesting another link.';
       }
       setErrorMessage(message);
       toast.error(message);
@@ -536,13 +578,18 @@ export default function ResetPasswordPage() {
                     <div className="pt-2 space-y-3">
                       <Button
                         type="submit"
-                        disabled={loading}
-                        className="w-full bg-primary text-primary-foreground font-black h-16 rounded-2xl shadow-lg shadow-primary/20 hover:scale-[1.02] active:scale-[0.98] transition-all uppercase text-xs tracking-wider cursor-pointer"
+                        disabled={loading || cooldown > 0}
+                        className="w-full bg-primary text-primary-foreground font-black h-16 rounded-2xl shadow-lg shadow-primary/20 hover:scale-[1.02] active:scale-[0.98] transition-all uppercase text-xs tracking-wider cursor-pointer disabled:opacity-50"
                       >
                         {loading ? (
                           <span className="flex items-center gap-2">
                             <Loader2 className="w-4 h-4 animate-spin" />
                             Dispatching Security Link...
+                          </span>
+                        ) : cooldown > 0 ? (
+                          <span className="flex items-center gap-2">
+                            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                            Please wait {cooldown}s...
                           </span>
                         ) : (
                           'Send Password Reset Link'

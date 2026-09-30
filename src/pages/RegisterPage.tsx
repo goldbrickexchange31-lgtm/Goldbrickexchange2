@@ -10,6 +10,10 @@ import { auth, db } from '../lib/firebase';
 import { createUserWithEmailAndPassword, updateProfile } from 'firebase/auth';
 import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { handleFirestoreError, OperationType } from '../lib/errorHandlers';
+import { GoogleIcon } from '../components/GoogleIcon';
+import { loginOrSignUpWithGoogle, formatGoogleAuthError } from '../lib/googleAuth';
+import { AuthorizedDomainModal } from '../components/AuthorizedDomainModal';
+import { Loader2 } from 'lucide-react';
 
 export default function RegisterPage() {
   const [params] = useSearchParams();
@@ -20,6 +24,8 @@ export default function RegisterPage() {
   const [name, setName] = useState('');
   const [agreed, setAgreed] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
+  const [showDomainModal, setShowDomainModal] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -28,6 +34,27 @@ export default function RegisterPage() {
       setManualReferralCode(ref.toUpperCase());
     }
   }, [params]);
+
+  const handleGoogleSignUp = async () => {
+    setGoogleLoading(true);
+    try {
+      const refCode = manualReferralCode || params.get('ref') || null;
+      const user = await loginOrSignUpWithGoogle(refCode);
+      toast.success(`Account ready! Welcome, ${user.displayName || 'Investor'}!`);
+      navigate('/dashboard');
+    } catch (error: any) {
+      if (error?.code === 'auth/unauthorized-domain') {
+        console.warn('Google Sign-Up: Domain not yet allowlisted in Firebase project');
+        setShowDomainModal(true);
+      } else {
+        console.warn('Google Sign-Up notice:', error?.code || error?.message || error);
+        const friendlyMsg = formatGoogleAuthError(error);
+        toast.error(friendlyMsg);
+      }
+    } finally {
+      setGoogleLoading(false);
+    }
+  };
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -93,6 +120,36 @@ export default function RegisterPage() {
           <p className="text-white/40 font-bold text-[10px] uppercase tracking-widest mt-3 px-8 leading-relaxed">Join the elite GoldBrick investment community</p>
         </CardHeader>
         <CardContent className="p-10 pt-6">
+          {/* One-Click Google Sign Up */}
+          <Button
+            type="button"
+            variant="outline"
+            onClick={handleGoogleSignUp}
+            disabled={googleLoading || loading}
+            className="w-full h-14 rounded-2xl border-white/10 bg-white/5 hover:bg-white/10 text-white font-bold text-sm flex items-center justify-center gap-3 transition-all hover:scale-[1.01] active:scale-[0.99] shadow-md cursor-pointer mb-6"
+          >
+            {googleLoading ? (
+              <span className="flex items-center gap-2">
+                <Loader2 className="w-4 h-4 animate-spin text-primary" />
+                Setting Up with Google...
+              </span>
+            ) : (
+              <>
+                <GoogleIcon className="w-5 h-5 shrink-0" />
+                <span>Sign up with Google</span>
+              </>
+            )}
+          </Button>
+
+          <div className="relative my-6 text-center">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t border-white/10" />
+            </div>
+            <div className="relative flex justify-center text-[10px] uppercase font-black tracking-widest">
+              <span className="bg-card px-4 text-white/40">Or register with email</span>
+            </div>
+          </div>
+
           <form onSubmit={handleRegister} className="space-y-6">
             <div className="space-y-3">
               <Label className="text-[10px] font-black uppercase text-white/40 tracking-widest">Full Name</Label>
@@ -174,6 +231,13 @@ export default function RegisterPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Authorized Domain Modal */}
+      <AuthorizedDomainModal
+        isOpen={showDomainModal}
+        onOpenChange={setShowDomainModal}
+        actionType="google"
+      />
     </div>
   );
 }

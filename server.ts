@@ -33,6 +33,8 @@ const firebaseConfig = {
   messagingSenderId: "390165274318",
 };
 
+const APP_BASE_URL = process.env.APP_URL || 'https://ais-pre-cut5fmpsngbcjicx2xrqpr-30985649189.europe-west2.run.app';
+
 // Initialize Admin SDK safely
 let firebaseApp: admin.app.App | null = null;
 let db: admin.firestore.Firestore | null = null;
@@ -74,6 +76,7 @@ function getDb() {
 }
 
 // Background Task: Mature Investments
+let hasWarnedPermission = false;
 async function matureInvestments() {
   try {
     const firestore = getDb();
@@ -168,8 +171,15 @@ async function matureInvestments() {
         console.log(`[MATURITY] Successfully matured ${invDoc.id}. Distributed $${totalPayout}`);
       }
     }
-  } catch (err) {
-    console.error("Error in maturity checker:", err);
+  } catch (err: any) {
+    if (err?.code === 7 || err?.message?.includes('PERMISSION_DENIED') || err?.message?.includes('Missing or insufficient permissions')) {
+      if (!hasWarnedPermission) {
+        hasWarnedPermission = true;
+        console.log('[FIREBASE] Server Firestore Admin credentials not provisioned for project goldbrick-cd2b5. Investment auto-settlement is handled on client dashboard.');
+      }
+    } else {
+      console.error("Error in maturity checker:", err);
+    }
   }
 }
 
@@ -179,6 +189,14 @@ async function startNotificationListener() {
   try {
     const firestore = getDb();
     const messaging = admin.messaging();
+
+    const handleListenerError = (name: string) => (err: any) => {
+      if (err?.code === 7 || err?.message?.includes('PERMISSION_DENIED')) {
+        // Silently handled: server credentials not configured for project
+      } else {
+        console.warn(`[PUSH] ${name} listener error:`, err?.message || err);
+      }
+    };
 
     // Listen for new registrations
     firestore.collection('users').onSnapshot(async (snapshot) => {
@@ -210,9 +228,9 @@ async function startNotificationListener() {
                   body: `${user.fullName} just joined GoldBrick Exchange.`,
                 },
                 webpush: {
-                  fcm_options: { link: 'https://ais-pre-224n6rm73lzpde37om5nik-815345978387.europe-west2.run.app/admin' },
+                  fcm_options: { link: `${APP_BASE_URL}/admin` },
                   notification: {
-                    icon: 'https://ais-pre-224n6rm73lzpde37om5nik-815345978387.europe-west2.run.app/favicon.ico',
+                    icon: `${APP_BASE_URL}/favicon.ico`,
                     requireInteraction: true,
                     tag: 'new-user'
                   }
@@ -225,7 +243,7 @@ async function startNotificationListener() {
           }
         }
       }
-    });
+    }, handleListenerError('users'));
 
     // Listen for new withdrawals
     firestore.collection('transactions')
@@ -260,9 +278,9 @@ async function startNotificationListener() {
                   body: `${tx.userName} requested a withdrawal of $${tx.amount}. Action required.`,
                 },
                 webpush: {
-                  fcm_options: { link: 'https://ais-pre-224n6rm73lzpde37om5nik-815345978387.europe-west2.run.app/admin' },
+                  fcm_options: { link: `${APP_BASE_URL}/admin` },
                   notification: {
-                    icon: 'https://ais-pre-224n6rm73lzpde37om5nik-815345978387.europe-west2.run.app/favicon.ico',
+                    icon: `${APP_BASE_URL}/favicon.ico`,
                     requireInteraction: true,
                     tag: 'withdrawal-alert'
                   }
@@ -275,7 +293,7 @@ async function startNotificationListener() {
           }
         }
       }
-    });
+    }, handleListenerError('withdrawals'));
 
     // Listen for changes in chats
     firestore.collection('chats').onSnapshot(async (snapshot) => {
@@ -326,11 +344,11 @@ async function startNotificationListener() {
                 },
                 webpush: {
                   fcm_options: {
-                    link: 'https://ais-pre-224n6rm73lzpde37om5nik-815345978387.europe-west2.run.app/admin' 
+                    link: `${APP_BASE_URL}/admin` 
                   },
                   notification: {
-                    icon: 'https://ais-pre-224n6rm73lzpde37om5nik-815345978387.europe-west2.run.app/favicon.ico',
-                    badge: 'https://ais-pre-224n6rm73lzpde37om5nik-815345978387.europe-west2.run.app/favicon.ico',
+                    icon: `${APP_BASE_URL}/favicon.ico`,
+                    badge: `${APP_BASE_URL}/favicon.ico`,
                     requireInteraction: true,
                     vibrate: [200, 100, 200]
                   }
@@ -350,9 +368,7 @@ async function startNotificationListener() {
           }
         }
       }
-    }, (err) => {
-      console.error('[PUSH] Chat snapshot error:', err);
-    });
+    }, handleListenerError('chats'));
 
     // Listen for new deposits
     firestore.collection('transactions')
@@ -393,11 +409,11 @@ async function startNotificationListener() {
                 },
                 webpush: {
                   fcm_options: {
-                    link: 'https://ais-pre-224n6rm73lzpde37om5nik-815345978387.europe-west2.run.app/admin' 
+                    link: `${APP_BASE_URL}/admin` 
                   },
                   notification: {
-                    icon: 'https://ais-pre-224n6rm73lzpde37om5nik-815345978387.europe-west2.run.app/favicon.ico',
-                    badge: 'https://ais-pre-224n6rm73lzpde37om5nik-815345978387.europe-west2.run.app/favicon.ico',
+                    icon: `${APP_BASE_URL}/favicon.ico`,
+                    badge: `${APP_BASE_URL}/favicon.ico`,
                     requireInteraction: true,
                     vibrate: [200, 100, 50, 100, 200]
                   }
@@ -410,7 +426,7 @@ async function startNotificationListener() {
           }
         }
       }
-    });
+    }, handleListenerError('deposits'));
   } catch (err) {
     console.error('[PUSH] Failed to start listener:', err);
   }
@@ -665,11 +681,11 @@ async function configureApp() {
         },
         webpush: {
           fcm_options: {
-            link: 'https://ais-pre-224n6rm73lzpde37om5nik-815345978387.europe-west2.run.app/admin'
+            link: `${APP_BASE_URL}/admin`
           },
           notification: {
-            icon: 'https://ais-pre-224n6rm73lzpde37om5nik-815345978387.europe-west2.run.app/favicon.ico',
-            badge: 'https://ais-pre-224n6rm73lzpde37om5nik-815345978387.europe-west2.run.app/favicon.ico',
+            icon: `${APP_BASE_URL}/favicon.ico`,
+            badge: `${APP_BASE_URL}/favicon.ico`,
             requireInteraction: true,
             vibrate: [200, 100, 200],
             tag: 'admin-alert'

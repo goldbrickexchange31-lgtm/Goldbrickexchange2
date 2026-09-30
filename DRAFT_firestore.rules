@@ -1,105 +1,161 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    
-    // 0. Global Safety Net
-    match /{document=**} {
-      allow read, write: if false;
+
+    // 0. Helper Functions
+    function isSignedIn() {
+      return request.auth != null;
     }
 
-    // PHASE 3: Primitives
-    function isSignedIn() { return request.auth != null; }
-    function isEmailVerified() { return isSignedIn() && request.auth.token.email_verified == true; }
-    function isValidId(id) { return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
-    function incoming() { return request.resource.data; }
-    function existing() { return resource.data; }
-    function isAdmin() { 
-      // Note: We use get() on the user document to check current role.
-      // Admin email from runtime: goldbrickexchange31@gmail.com
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isAdmin() {
       return isSignedIn() && (
-        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin' ||
-        request.auth.token.email == 'goldbrickexchange31@gmail.com'
+        request.auth.token.email in ['goldbrickexchange31@gmail.com'] ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin')
       );
     }
 
-    // PHASE 4: Entity Validations
+    function isImmutable(field) {
+      return !(field in incoming()) || incoming()[field] == existing()[field];
+    }
+
+    // Entity Validations
     function isValidUser(data) {
       return data.email is string && data.email.size() <= 100
-             && data.balance is number && data.balance >= 0
+             && data.balance is number
              && data.role in ['user', 'admin']
              && data.status in ['active', 'suspended']
-             && data.uid == request.auth.uid;
+             && data.uid is string && data.uid.size() <= 128
+             && data.referralCode is string && data.referralCode.size() <= 20
+             && (!('referredBy' in data) || data.referredBy == null || (data.referredBy is string && data.referredBy.size() <= 128))
+             && (!('displayName' in data) || data.displayName == null || (data.displayName is string && data.displayName.size() <= 100))
+             && data.totalProfit is number
+             && data.totalInvested is number
+             && data.referralEarnings is number
+             && (!('profilePic' in data) || data.profilePic == null || (data.profilePic is string && data.profilePic.size() <= 1024))
+             && (data.createdAt is timestamp || data.createdAt == null);
     }
 
     function isValidInvestment(data) {
-      return data.userId == request.auth.uid 
+      return data.userId is string && data.userId.size() <= 128
+             && (!('userName' in data) || (data.userName is string && data.userName.size() <= 128))
+             && (!('userEmail' in data) || (data.userEmail is string && data.userEmail.size() <= 100))
+             && data.planId is string && data.planId.size() <= 64
+             && data.planName is string && data.planName.size() <= 64
              && data.amount is number && data.amount > 0
+             && (!('minDeposit' in data) || data.minDeposit is number)
+             && (!('profit' in data) || data.profit is number)
+             && (!('profitValue' in data) || data.profitValue is number)
+             && (!('profitType' in data) || data.profitType in ['percentage', 'fixed'])
+             && (!('expectedReturn' in data) || data.expectedReturn is number)
              && data.status in ['active', 'completed']
-             && data.createdAt == request.time;
+             && (!('durationDays' in data) || data.durationDays is number)
+             && (!('durationHours' in data) || data.durationHours is number)
+             && (!('expiresAt' in data) || data.expiresAt is timestamp)
+             && (data.createdAt is timestamp || data.createdAt == null)
+             && (!('updatedAt' in data) || data.updatedAt is timestamp || data.updatedAt == null);
     }
 
     function isValidTransaction(data) {
-      return data.userId == request.auth.uid
-             && data.type in ['deposit', 'withdrawal']
-             && data.amount is number && data.amount > 0
-             && data.status == 'pending'
-             && data.createdAt == request.time;
+      return data.userId is string && data.userId.size() <= 128
+             && (!('userName' in data) || (data.userName is string && data.userName.size() <= 128))
+             && (!('userEmail' in data) || (data.userEmail is string && data.userEmail.size() <= 100))
+             && data.type in ['deposit', 'withdrawal', 'investment', 'referral_bonus']
+             && data.amount is number && data.amount >= 0
+             && data.status in ['pending', 'approved', 'rejected']
+             && (!('description' in data) || (data.description is string && data.description.size() <= 1000))
+             && (data.createdAt is timestamp || data.createdAt == null)
+             && (!('receiptUrl' in data) || (data.receiptUrl is string && data.receiptUrl.size() <= 1024))
+             && (!('walletAddress' in data) || (data.walletAddress is string && data.walletAddress.size() <= 128))
+             && (!('txHash' in data) || (data.txHash is string && data.txHash.size() <= 256))
+             && (!('network' in data) || (data.network is string && data.network.size() <= 64))
+             && (!('currency' in data) || (data.currency is string && data.currency.size() <= 32))
+             && (!('fee' in data) || data.fee is number)
+             && (!('netAmount' in data) || data.netAmount is number);
     }
 
-    // MATCH BLOCKS
-    
     // 1. Users
     match /users/{userId} {
-      allow get: if isSignedIn() && (request.auth.uid == userId || isAdmin());
-      allow list: if isAdmin(); // Only admins can list all users
-      
+      allow get, list: if isSignedIn();
+
       allow create: if isSignedIn() && isValidId(userId) && userId == request.auth.uid
                      && isValidUser(incoming())
-                     && incoming().balance == 0 
                      && incoming().role == 'user'
-                     && incoming().createdAt == request.time;
-                     
+                     && (incoming().createdAt == request.time || incoming().createdAt == null);
+
       allow update: if isSignedIn() && (
+        isAdmin() ||
         (request.auth.uid == userId && (
-          // User updates their own profile (display name, etc) but NOT role/balance
-          incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'profilePic'])
-        )) || 
-        isAdmin() // Admin can update balance, earnings, status, role
+          incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'profilePic', 'balance', 'totalInvested', 'totalProfit', 'referralEarnings', 'fcmTokens', 'lastTokenUpdate'])
+          && isImmutable('role') && isImmutable('uid')
+          && isImmutable('email') && isImmutable('createdAt')
+          && isImmutable('referralCode') && isImmutable('referredBy')
+        )) ||
+        (request.auth.uid != userId && incoming().diff(existing()).affectedKeys().hasOnly(['balance', 'referralEarnings']))
       );
     }
 
     // 2. Investments
     match /investments/{invId} {
-      allow get: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
-      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
-      
+      allow read: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (isAdmin() || resource.data.userId == request.auth.uid);
+
       allow create: if isSignedIn() && isValidId(invId)
+                     && incoming().userId == request.auth.uid
                      && isValidInvestment(incoming())
-                     && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.balance >= incoming().amount;
-                     
-      allow update: if isAdmin(); // Users generally don't update investments directly, except maybe status via background logic elsewhere, but admin controls it.
+                     && (incoming().createdAt == request.time || incoming().createdAt == null);
+
+      allow update: if isSignedIn() && (
+        isAdmin() ||
+        (resource.data.userId == request.auth.uid
+          && incoming().status == 'completed'
+          && existing().status == 'active'
+          && (resource.data.expiresAt <= request.time || resource.data.expiresAt == null)
+          && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt'])
+        )
+      );
+
+      allow delete: if isAdmin();
     }
 
     // 3. Transactions
     match /transactions/{txId} {
-      allow get: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
-      allow list: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
-      
+      allow read: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (isAdmin() || resource.data.userId == request.auth.uid);
+
       allow create: if isSignedIn() && isValidId(txId)
-                     && isValidTransaction(incoming());
-                     
-      allow update: if isAdmin(); // Admin approves/rejects
+                     && (
+                       incoming().userId == request.auth.uid ||
+                       (incoming().type == 'referral_bonus' && exists(/databases/$(database)/documents/users/$(request.auth.uid)))
+                     )
+                     && isValidTransaction(incoming())
+                     && (incoming().createdAt == request.time || isAdmin() || incoming().createdAt == null);
+
+      allow update: if isAdmin();
       allow delete: if isAdmin();
     }
 
-    // 4. Plans & Wallets (Read for all, Write for Admin)
+    // 4. Plans & Wallets
     match /plans/{planId} {
       allow read: if true;
-      allow write: if isAdmin();
+      allow write, delete: if isAdmin();
     }
+
     match /wallets/{walletId} {
       allow read: if true;
-      allow write: if isAdmin();
+      allow write, delete: if isAdmin();
     }
 
     // 5. Config
@@ -110,11 +166,27 @@ service cloud.firestore {
 
     // 6. Support Chats
     match /chats/{userId} {
-      allow get, write: if isSignedIn() && (request.auth.uid == userId || isAdmin());
-      
+      allow read, write: if isSignedIn() && (request.auth.uid == userId || isAdmin());
+
       match /messages/{msgId} {
-        allow read, create: if isSignedIn() && (userId == request.auth.uid || isAdmin());
+        allow read, write: if isSignedIn() && (userId == request.auth.uid || isAdmin());
       }
+    }
+
+    // 7. Visitor Analytics & Real-Time Presence
+    match /visitors/{visitorId} {
+      allow read, delete: if isAdmin();
+      allow create, update: if true;
+    }
+
+    match /visitor_notifications/{notifId} {
+      allow read, delete, update: if isAdmin();
+      allow create: if true;
+    }
+
+    // Default catch-all
+    match /{document=**} {
+      allow read, write: if isAdmin();
     }
   }
 }

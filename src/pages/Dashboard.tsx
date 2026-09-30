@@ -149,16 +149,22 @@ export default function Dashboard() {
     }
   };
 
-  // Handle Auto-Settle Expired Investments - REMOVED: Handled by server-side cron to prevent blinking
-  /*
+  // Handle Auto-Settle Expired Investments (safe client-side auto-payout)
+  const isSettlingRef = React.useRef(false);
   useEffect(() => {
-    if (!user || allInvestments.length === 0 || !userData) return;
+    if (!user || allInvestments.length === 0 || !userData || isSettlingRef.current) return;
 
     const settleExpired = async () => {
-      const expired = allInvestments.filter(inv => inv.status === 'active' && inv.expiresAt && inv.expiresAt.toDate() <= new Date());
+      const now = new Date();
+      const expired = allInvestments.filter(inv => {
+        if (inv.status !== 'active' || !inv.expiresAt) return false;
+        const expDate = inv.expiresAt.toDate ? inv.expiresAt.toDate() : new Date(inv.expiresAt);
+        return expDate <= now;
+      });
       
       if (expired.length === 0) return;
 
+      isSettlingRef.current = true;
       const batch = writeBatch(db);
       let totalProfitToUser = 0;
       let totalReturnToUser = 0;
@@ -181,12 +187,13 @@ export default function Dashboard() {
         toast.success(`Successfully claimed returns from ${expired.length} matured investment(s)!`);
       } catch (error) {
         console.error("Auto-settle error:", error);
+      } finally {
+        isSettlingRef.current = false;
       }
     };
 
     settleExpired();
   }, [allInvestments, user, userData]);
-  */
 
   const totalEarnings = React.useMemo(() => {
     const realized = (userData?.totalProfit || 0) + (userData?.referralEarnings || 0);
