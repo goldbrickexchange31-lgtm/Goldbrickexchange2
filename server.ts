@@ -11,6 +11,13 @@ import {
   lookupIpGeolocation,
   getActiveVisitors
 } from './server/visitorTracker.js';
+import {
+  getSmtpConfig,
+  createTransporter,
+  generatePasswordResetEmailHtml,
+  generatePasswordResetEmailText,
+  type SmtpConfig
+} from './server/emailService.js';
 
 dotenv.config();
 
@@ -497,6 +504,119 @@ async function configureApp() {
       res.json({ ip, geo });
     } catch (err: any) {
       res.status(500).json({ error: err.message });
+    }
+  });
+
+  // EMAIL & SMTP MANAGEMENT API
+  // 1. Get current SMTP status (masked for security)
+  expressApp.get('/api/email/status', async (req, res) => {
+    try {
+      const config = await getSmtpConfig(getDb());
+      if (!config) {
+        return res.json({ 
+          configured: false, 
+          provider: 'firebase-default',
+          message: 'Using Firebase Auth direct in-app redirect' 
+        });
+      }
+      res.json({
+        configured: true,
+        host: config.host,
+        port: config.port,
+        secure: config.secure,
+        user: config.user,
+        fromName: config.fromName,
+        fromEmail: config.fromEmail,
+        hasPassword: !!config.pass
+      });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 2. Save SMTP settings (Admin only)
+  expressApp.post('/api/email/save-smtp', async (req, res) => {
+    try {
+      const { host, port, secure, user, pass, fromName, fromEmail } = req.body;
+      const firestore = getDb();
+
+      await firestore.collection('settings').doc('smtp').set({
+        host: host?.trim() || 'smtp.gmail.com',
+        port: parseInt(port || '587', 10),
+        secure: !!secure,
+        user: user?.trim() || '',
+        pass: pass?.trim() || '',
+        fromName: fromName?.trim() || 'GoldBrick Security',
+        fromEmail: fromEmail?.trim() || user?.trim() || '',
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      }, { merge: true });
+
+      res.json({ success: true, message: 'SMTP settings updated successfully' });
+    } catch (err: any) {
+      console.error('[EMAIL] Failed to save SMTP config:', err);
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // 3. Test SMTP deliverability (sends a test email to admin / target email)
+  expressApp.post('/api/email/test-smtp', async (req, res) => {
+    try {
+      const { targetEmail, customConfig } = req.body;
+      if (!targetEmail) {
+        return res.status(400).json({ error: 'targetEmail is required' });
+      }
+
+      const config = customConfig || (await getSmtpConfig(getDb()));
+      if (!config || !config.user || !config.pass) {
+        return res.status(400).json({ 
+          error: 'SMTP credentials missing. Please enter your SMTP host, user, and app password.' 
+        });
+      }
+
+      const transporter = await createTransporter(config);
+      
+      // Verify transporter connection first
+      await transporter.verify();
+
+      const fromAddress = `"${config.fromName || 'GoldBrick Security'}" <${config.fromEmail || config.user}>`;
+      const currentYear = new Date().getFullYear();
+
+      const info = await transporter.sendMail({
+        from: fromAddress,
+        to: targetEmail,
+        subject: `[Test] GoldBrick Exchange Email Deliverability Check`,
+        text: `This is a test email sent from GoldBrick Exchange to verify your SMTP settings.\n\nTime: ${new Date().toISOString()}\nHost: ${config.host}\nUser: ${config.user}`,
+        html: `
+          <div style="background-color: #0b0f19; padding: 40px; font-family: -apple-system, sans-serif; color: #ffffff;">
+            <div style="max-width: 520px; margin: 0 auto; background-color: #111827; border: 1px solid #1f2937; border-radius: 20px; padding: 32px; box-shadow: 0 20px 25px -5px rgba(0,0,0,0.5);">
+              <h1 style="color: #0066FF; font-size: 24px; font-weight: 900; margin-top: 0;">GOLDBRICK SECURITY</h1>
+              <p style="color: #10b981; font-weight: 700; font-size: 14px;">✔ SMTP Deliverability Verified</p>
+              <p style="color: #9ca3af; font-size: 13px; line-height: 20px;">
+                Your custom mail transport is connected and working! Outgoing password resets and system notifications will be dispatched directly through your verified mail server to avoid spam filters.
+              </p>
+              <div style="background-color: #030712; padding: 16px; border-radius: 12px; margin: 20px 0; font-size: 12px; color: #6b7280; font-family: monospace;">
+                Host: ${config.host}<br>
+                Port: ${config.port}<br>
+                Sender: ${fromAddress}<br>
+                Timestamp: ${new Date().toLocaleString()}
+              </div>
+              <p style="color: #4b5563; font-size: 11px; margin-bottom: 0;">
+                © ${currentYear} GoldBrick Exchange. All rights reserved.
+              </p>
+            </div>
+          </div>
+        `,
+        headers: {
+          'X-Mailer': 'GoldBrick-Mail-Engine',
+          'X-Priority': '1 (Highest)',
+        }
+      });
+
+      console.log('[EMAIL] Test email dispatched successfully:', info.messageId);
+      res.json({ success: true, messageId: info.messageId });
+    } catch (err: any) {
+      console.error('[EMAIL] Test email failed:', err);
+      res.status(500).json({ error: err.message || 'SMTP Connection Failed' });
     }
   });
 

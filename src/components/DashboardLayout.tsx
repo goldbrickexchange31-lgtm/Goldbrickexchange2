@@ -15,17 +15,20 @@ import {
   LayoutDashboard,
   LogOut,
   Settings,
-  Download
+  Download,
+  KeyRound
 } from 'lucide-react';
 import { useAuth } from '../lib/AuthContext';
 import { auth } from '../lib/firebase';
 import { usePWA } from '../lib/PWAContext';
 import { IOSInstallGuide } from './IOSInstallGuide';
+import { ChangePasswordModal } from './ChangePasswordModal';
 import { onForegroundMessage } from '../lib/notifications';
 import { toast } from 'sonner';
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
   const location = useLocation();
   const { userData, user } = useAuth();
   const navigate = useNavigate();
@@ -131,6 +134,17 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               </Link>
             ))}
 
+            <button
+              onClick={() => {
+                setIsSidebarOpen(false);
+                setIsChangePasswordOpen(true);
+              }}
+              className="flex items-center gap-3 w-full px-4 py-3 rounded-xl text-white/40 hover:bg-white/5 hover:text-white transition-all cursor-pointer"
+            >
+              <KeyRound className="w-5 h-5 text-primary" />
+              <span className="text-xs font-black uppercase tracking-widest">Change Password</span>
+            </button>
+
             {isAdmin && (
               <Link 
                 to="/admin"
@@ -152,7 +166,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </nav>
 
           <div className="p-4 border-t border-border hidden md:block space-y-2">
-             <Button variant="ghost" className="w-full justify-start text-white/40 hover:text-red-500 hover:bg-red-500/10 transition-all rounded-xl" onClick={handleLogout}>
+             <Button 
+                variant="ghost" 
+                className="w-full justify-start text-white/40 hover:text-white hover:bg-white/5 transition-all rounded-xl cursor-pointer"
+                onClick={() => setIsChangePasswordOpen(true)}
+             >
+                <KeyRound className="w-4 h-4 mr-3 text-primary" />
+                <span className="text-xs font-black uppercase tracking-widest">Change Password</span>
+             </Button>
+             <Button variant="ghost" className="w-full justify-start text-white/40 hover:text-red-500 hover:bg-red-500/10 transition-all rounded-xl cursor-pointer" onClick={handleLogout}>
                 <LogOut className="w-5 h-5 mr-3" />
                 <span className="text-xs font-black uppercase tracking-widest">Logout</span>
              </Button>
@@ -177,21 +199,34 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 <Download className="size-4 mr-2" /> ⬇ Install App
               </Button>
             )}
-            <div className="flex items-center gap-3 p-1.5 bg-white/5 border border-border rounded-2xl">
+            <button
+              onClick={() => setIsChangePasswordOpen(true)}
+              className="flex items-center gap-3 p-1.5 bg-white/5 hover:bg-white/10 border border-border hover:border-primary/40 rounded-2xl transition-all cursor-pointer text-left"
+              title="Click to Change Password"
+            >
               <div className="size-8 rounded-xl bg-primary flex items-center justify-center font-black italic text-xs text-white">
                 {userData?.displayName?.[0]?.toUpperCase() || 'U'}
               </div>
               <div className="pr-3">
-                <p className="text-[9px] font-black uppercase text-white/40 leading-none mb-1">Authenticated</p>
-                <p className="text-[10px] font-black text-white italic leading-none">{userData?.displayName?.split(' ')[0]}</p>
+                <div className="flex items-center gap-1.5">
+                  <p className="text-[9px] font-black uppercase text-white/40 leading-none">Security</p>
+                  <KeyRound className="w-2.5 h-2.5 text-primary" />
+                </div>
+                <p className="text-[10px] font-black text-white italic leading-none mt-1">{userData?.displayName?.split(' ')[0] || 'User'}</p>
               </div>
-            </div>
+            </button>
           </div>
         </header>
         <div className="max-w-6xl mx-auto p-4 md:p-8">
           {children}
         </div>
       </main>
+
+      {/* In-Website Change Password Modal */}
+      <ChangePasswordModal 
+        isOpen={isChangePasswordOpen} 
+        onOpenChange={setIsChangePasswordOpen} 
+      />
 
       {/* Quick Footer for Mobile */}
       <nav className="md:hidden fixed bottom-0 left-0 right-0 h-16 bg-card border-t border-border flex items-center justify-around px-4 z-50">

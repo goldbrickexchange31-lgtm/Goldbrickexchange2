@@ -50,7 +50,11 @@ import {
   LogOut,
   Bell,
   Send,
-  ShieldCheck
+  ShieldCheck,
+  Mail,
+  KeyRound,
+  Server,
+  RefreshCw
 } from 'lucide-react';
 import { useAuth } from '../lib/AuthContext';
 import { db, auth } from '../lib/firebase';
@@ -103,6 +107,19 @@ export default function AdminDashboard() {
     contactLink: '',
     depositInstruction: 'Send funds to the wallet below and upload a clear screenshot of your transaction receipt.',
   });
+
+  const [smtpConfig, setSmtpConfig] = useState<any>({
+    host: 'smtp.gmail.com',
+    port: 587,
+    secure: false,
+    user: 'goldbrickexchange31@gmail.com',
+    pass: '',
+    fromName: 'GoldBrick Security',
+    fromEmail: 'goldbrickexchange31@gmail.com',
+  });
+  const [smtpSaving, setSmtpSaving] = useState(false);
+  const [smtpTesting, setSmtpTesting] = useState(false);
+  const [testEmailAddress, setTestEmailAddress] = useState('benjamingeorge230@gmail.com');
 
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
@@ -159,6 +176,22 @@ export default function AdminDashboard() {
     const unsubConfig = onSnapshot(doc(db, 'config', 'general'), (snap) => {
       if (snap.exists()) setConfig(prev => ({ ...prev, ...snap.data() }));
     }, (e) => console.error('Config snapshot error:', e));
+
+    const unsubSmtp = onSnapshot(doc(db, 'settings', 'smtp'), (snap) => {
+      if (snap.exists()) {
+        const data = snap.data();
+        setSmtpConfig((prev: any) => ({
+          ...prev,
+          host: data.host || prev.host,
+          port: data.port || prev.port,
+          secure: data.secure !== undefined ? data.secure : prev.secure,
+          user: data.user || prev.user,
+          pass: data.pass || prev.pass,
+          fromName: data.fromName || prev.fromName,
+          fromEmail: data.fromEmail || prev.fromEmail,
+        }));
+      }
+    }, (e) => console.error('SMTP snapshot error:', e));
 
     // Live Visitors listener
     const unsubVisitors = onSnapshot(
@@ -369,6 +402,50 @@ export default function AdminDashboard() {
       toast.success('Settings updated');
     } catch (e: any) {
       toast.error('Failed to update settings');
+    }
+  };
+
+  const handleSaveSmtp = async () => {
+    setSmtpSaving(true);
+    try {
+      const res = await fetch('/api/email/save-smtp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(smtpConfig),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to save SMTP configuration');
+      toast.success('SMTP Settings saved! Outgoing password resets and notifications will route via this mail gateway.');
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to save SMTP configuration');
+    } finally {
+      setSmtpSaving(false);
+    }
+  };
+
+  const handleTestSmtp = async () => {
+    if (!testEmailAddress) {
+      toast.error('Please enter a target recipient email address for testing');
+      return;
+    }
+    setSmtpTesting(true);
+    const toastId = toast.loading(`Sending test email to ${testEmailAddress}...`);
+    try {
+      const res = await fetch('/api/email/test-smtp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          targetEmail: testEmailAddress,
+          customConfig: smtpConfig,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'SMTP delivery check failed');
+      toast.success(`Success! Test email delivered to ${testEmailAddress}. Check your inbox!`, { id: toastId });
+    } catch (err: any) {
+      toast.error(`SMTP Error: ${err.message}`, { id: toastId });
+    } finally {
+      setSmtpTesting(false);
     }
   };
 
@@ -1306,6 +1383,151 @@ export default function AdminDashboard() {
                             </div>
                          </div>
                       </CardContent>
+                  </Card>
+
+                  {/* Email Delivery & Anti-Spam (SMTP) Gateway Card */}
+                  <Card className="bg-card border-border rounded-3xl overflow-hidden shadow-md border lg:col-span-2">
+                    <CardHeader className="p-8 border-b border-border bg-white/5 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                      <div>
+                        <CardTitle className="text-lg font-black uppercase italic tracking-tighter flex items-center gap-3 text-white">
+                          <Mail className="size-5 text-primary" /> Email Delivery & Anti-Spam Gateway (SMTP)
+                        </CardTitle>
+                        <CardDescription className="text-xs text-white/50 mt-1">
+                          Configure an authenticated mail server (Gmail, Brevo, SendGrid) to guarantee password reset emails land in user primary inboxes, not Spam.
+                        </CardDescription>
+                      </div>
+                      <Badge className="bg-primary/10 text-primary border border-primary/20 text-[10px] uppercase font-mono px-3 py-1 w-fit">
+                        In-Website Reset Active
+                      </Badge>
+                    </CardHeader>
+                    <CardContent className="p-8 space-y-6">
+                      <div className="p-4 rounded-2xl bg-primary/5 border border-primary/20 text-xs leading-relaxed text-white/80 space-y-1">
+                        <div className="font-black text-primary uppercase text-[10px] tracking-wider flex items-center gap-1.5">
+                          <ShieldCheck className="w-4 h-4" />
+                          In-Website Password Reset Standard
+                        </div>
+                        <p className="text-white/60 text-[11px]">
+                          Password reset links automatically redirect users to your branded in-website reset page (<code className="text-primary font-mono">/reset-password</code>), avoiding the generic Firebase app.
+                        </p>
+                        <p className="text-white/60 text-[11px]">
+                          To ensure emails avoid user Spam/Junk filters, connect your custom SMTP credentials below (e.g. Gmail 16-character App Password).
+                        </p>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div className="space-y-2">
+                          <Label className="text-[10px] font-black uppercase text-slate-400 tracking-widest flex items-center gap-1.5">
+                            <Server className="w-3 h-3 text-primary" /> SMTP Host
+                          </Label>
+                          <Input
+                            placeholder="smtp.gmail.com"
+                            className="bg-background border-border h-14 rounded-xl text-white font-medium"
+                            value={smtpConfig.host || ''}
+                            onChange={(e) => setSmtpConfig({ ...smtpConfig, host: e.target.value })}
+                          />
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label className="text-[10px] font-black uppercase text-slate-400 tracking-widest">
+                            SMTP Port
+                          </Label>
+                          <Input
+                            type="number"
+                            placeholder="587"
+                            className="bg-background border-border h-14 rounded-xl text-white font-medium"
+                            value={smtpConfig.port || 587}
+                            onChange={(e) => setSmtpConfig({ ...smtpConfig, port: parseInt(e.target.value, 10) || 587 })}
+                          />
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label className="text-[10px] font-black uppercase text-slate-400 tracking-widest flex items-center gap-1.5">
+                            <Mail className="w-3 h-3 text-primary" /> SMTP Username / Email
+                          </Label>
+                          <Input
+                            placeholder="goldbrickexchange31@gmail.com"
+                            className="bg-background border-border h-14 rounded-xl text-white font-medium"
+                            value={smtpConfig.user || ''}
+                            onChange={(e) => setSmtpConfig({ ...smtpConfig, user: e.target.value })}
+                          />
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label className="text-[10px] font-black uppercase text-slate-400 tracking-widest flex items-center gap-1.5">
+                            <KeyRound className="w-3 h-3 text-primary" /> SMTP App Password
+                          </Label>
+                          <Input
+                            type="password"
+                            placeholder="16-character Google App Password (e.g. abcd efgh ijkl mnop)"
+                            className="bg-background border-border h-14 rounded-xl text-white font-medium"
+                            value={smtpConfig.pass || ''}
+                            onChange={(e) => setSmtpConfig({ ...smtpConfig, pass: e.target.value })}
+                          />
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label className="text-[10px] font-black uppercase text-slate-400 tracking-widest">
+                            Sender Display Name
+                          </Label>
+                          <Input
+                            placeholder="GoldBrick Security"
+                            className="bg-background border-border h-14 rounded-xl text-white font-medium"
+                            value={smtpConfig.fromName || ''}
+                            onChange={(e) => setSmtpConfig({ ...smtpConfig, fromName: e.target.value })}
+                          />
+                        </div>
+
+                        <div className="space-y-2">
+                          <Label className="text-[10px] font-black uppercase text-slate-400 tracking-widest">
+                            Sender From Email
+                          </Label>
+                          <Input
+                            placeholder="goldbrickexchange31@gmail.com"
+                            className="bg-background border-border h-14 rounded-xl text-white font-medium"
+                            value={smtpConfig.fromEmail || ''}
+                            onChange={(e) => setSmtpConfig({ ...smtpConfig, fromEmail: e.target.value })}
+                          />
+                        </div>
+                      </div>
+
+                      {/* Test Deliverability Bar */}
+                      <div className="pt-4 border-t border-border flex flex-col md:flex-row items-center justify-between gap-4">
+                        <div className="flex-1 w-full flex items-center gap-3">
+                          <Input
+                            type="email"
+                            placeholder="Test recipient email (e.g. benjamingeorge230@gmail.com)"
+                            className="bg-background border-border h-12 rounded-xl text-white font-medium flex-1 text-xs"
+                            value={testEmailAddress}
+                            onChange={(e) => setTestEmailAddress(e.target.value)}
+                          />
+                          <Button
+                            type="button"
+                            variant="outline"
+                            disabled={smtpTesting}
+                            onClick={handleTestSmtp}
+                            className="h-12 px-5 rounded-xl border-primary/40 bg-primary/10 text-primary font-black uppercase text-[10px] tracking-wider hover:bg-primary/20 transition-all cursor-pointer whitespace-nowrap"
+                          >
+                            {smtpTesting ? (
+                              <span className="flex items-center gap-1.5">
+                                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                Testing...
+                              </span>
+                            ) : (
+                              'Check Deliverability'
+                            )}
+                          </Button>
+                        </div>
+
+                        <Button
+                          type="button"
+                          disabled={smtpSaving}
+                          onClick={handleSaveSmtp}
+                          className="h-12 px-6 rounded-xl bg-primary text-primary-foreground font-black uppercase text-[10px] tracking-widest hover:scale-[1.02] active:scale-[0.98] transition-all cursor-pointer shadow-lg shadow-primary/20 w-full md:w-auto"
+                        >
+                          {smtpSaving ? 'Saving...' : 'Save SMTP Settings'}
+                        </Button>
+                      </div>
+                    </CardContent>
                   </Card>
                </div>
 

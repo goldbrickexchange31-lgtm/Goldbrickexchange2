@@ -17,10 +17,12 @@ import {
   TrendingDown,
   Activity,
   History,
-  Download
+  Download,
+  KeyRound
 } from 'lucide-react';
 import DashboardLayout from '../components/DashboardLayout';
 import BTCChart from '../components/BTCChart';
+import { ChangePasswordModal } from '../components/ChangePasswordModal';
 import { useAuth } from '../lib/AuthContext';
 import { usePWA } from '../lib/PWAContext';
 import { db } from '../lib/firebase';
@@ -51,6 +53,7 @@ export default function Dashboard() {
   const [recentTransactions, setRecentTransactions] = useState<any[]>([]);
   const [globalActivity, setGlobalActivity] = useState<any[]>([]);
   const [now, setNow] = useState(new Date());
+  const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -207,6 +210,9 @@ export default function Dashboard() {
              <p className="text-white/40 font-mono text-[9px] md:text-[10px] uppercase tracking-[0.2em] md:tracking-[0.3em] font-bold">Welcome Back: {userData?.displayName?.toUpperCase()}</p>
           </div>
           <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
+             <Button onClick={() => setIsChangePasswordOpen(true)} variant="outline" className="flex-1 md:flex-none border-border bg-white/5 font-black uppercase text-[10px] tracking-widest h-10 md:h-12 px-4 md:px-5 rounded-xl text-white hover:bg-white/10 transition-all cursor-pointer">
+               <KeyRound className="size-3.5 mr-1.5 text-primary" /> Password
+             </Button>
              <Button onClick={() => navigate('/withdraw')} variant="outline" className="flex-1 md:flex-none border-border bg-secondary font-black uppercase text-[10px] tracking-widest h-10 md:h-12 px-4 md:px-6 rounded-xl text-secondary-foreground hover:bg-secondary/80 transition-all">
                Withdraw
              </Button>
@@ -435,6 +441,12 @@ export default function Dashboard() {
             </div>
         </section>
       </div>
+
+      {/* In-Website Change Password Modal */}
+      <ChangePasswordModal
+        isOpen={isChangePasswordOpen}
+        onOpenChange={setIsChangePasswordOpen}
+      />
     </DashboardLayout>
   );
 }
