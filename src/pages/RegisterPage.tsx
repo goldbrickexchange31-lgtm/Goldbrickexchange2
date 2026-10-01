@@ -90,6 +90,7 @@ export default function RegisterPage() {
         referredBy: referredBy,
         role: 'user',
         status: 'active',
+        accountStatus: 'inactive',
         createdAt: serverTimestamp()
       }).catch(e => handleFirestoreError(e, OperationType.WRITE, `users/${user.uid}`));
 

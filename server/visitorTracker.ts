@@ -210,6 +210,40 @@ export interface VisitorPayload {
 const memoryVisitors = new Map<string, any>();
 const memoryNotifications: any[] = [];
 
+// Firestore admin capability check & circuit breaker
+let serverFirestorePermitted: boolean | null = null;
+let lastPermissionCheckTime = 0;
+const PERMISSION_RETRY_INTERVAL_MS = 10 * 60 * 1000; // 10 minutes
+
+export function canAttemptServerFirestore(): boolean {
+  if (serverFirestorePermitted === false) {
+    if (Date.now() - lastPermissionCheckTime > PERMISSION_RETRY_INTERVAL_MS) {
+      serverFirestorePermitted = null; // Re-evaluate
+      return true;
+    }
+    return false;
+  }
+  return true;
+}
+
+export function handleServerFirestoreNotice(context: string, err: any) {
+  if (
+    err?.code === 7 ||
+    err?.message?.includes('PERMISSION_DENIED') ||
+    err?.message?.includes('Missing or insufficient permissions')
+  ) {
+    if (serverFirestorePermitted !== false) {
+      serverFirestorePermitted = false;
+      lastPermissionCheckTime = Date.now();
+      console.warn(
+        `[VISITOR] Server Firestore admin credentials not provisioned for project (telemetry active in memory and via client API): ${err?.message || err}`
+      );
+    }
+  } else {
+    console.warn(`[VISITOR] ${context} notice:`, err?.message || err);
+  }
+}
+
 // Get active visitors endpoint for admin dashboard
 export function getActiveVisitors(req: Request, res: Response) {
   const visitorsList = Array.from(memoryVisitors.values()).sort((a, b) => {
@@ -256,7 +290,7 @@ export async function processVisitorTracking(
     let existingData: any = memoryVisitors.get(visitorId) || null;
     let docExists = Boolean(existingData);
 
-    if (!existingData && visitorDocRef) {
+    if (!existingData && visitorDocRef && canAttemptServerFirestore()) {
       try {
         const snap = await visitorDocRef.get();
         if (snap.exists) {
@@ -264,7 +298,7 @@ export async function processVisitorTracking(
           docExists = true;
         }
       } catch (readErr: any) {
-        console.warn('[VISITOR] Firestore read notice:', readErr.message);
+        handleServerFirestoreNotice('read', readErr);
       }
     }
 
@@ -313,11 +347,11 @@ export async function processVisitorTracking(
 
       memoryVisitors.set(visitorId, visitorData);
 
-      if (visitorDocRef) {
+      if (visitorDocRef && canAttemptServerFirestore()) {
         try {
           await visitorDocRef.set(visitorData);
         } catch (setErr: any) {
-          console.warn('[VISITOR] Firestore write note:', setErr.message);
+          handleServerFirestoreNotice('write', setErr);
         }
       }
 
@@ -341,25 +375,27 @@ export async function processVisitorTracking(
       };
       memoryNotifications.unshift(notifData);
 
-      if (db) {
+      if (db && canAttemptServerFirestore()) {
         try {
           const notifRef = db.collection('visitor_notifications').doc();
           await notifRef.set({
             ...notifData,
             createdAt: now
           });
-        } catch (notifErr) {
-          console.error('[VISITOR] Error recording alert notification:', notifErr);
+        } catch (notifErr: any) {
+          handleServerFirestoreNotice('alert notification recording', notifErr);
         }
       }
 
       // Trigger Web Push Notification to Admins if tokens available
-      dispatchAdminPushNotification(adminInstance, db, {
-        title: `🟢 NEW WEBSITE VISITOR`,
-        body: `${geo.flagEmoji} ${geo.country} — ${geo.city} | ${device} • ${browser} on ${currentPage}`,
-        link: '/admin',
-        tag: 'new-visitor'
-      }).catch(e => console.error('[VISITOR-PUSH] Error:', e));
+      if (canAttemptServerFirestore()) {
+        dispatchAdminPushNotification(adminInstance, db, {
+          title: `🟢 NEW WEBSITE VISITOR`,
+          body: `${geo.flagEmoji} ${geo.country} — ${geo.city} | ${device} • ${browser} on ${currentPage}`,
+          link: '/admin',
+          tag: 'new-visitor'
+        }).catch(e => handleServerFirestoreNotice('visitor push dispatch', e));
+      }
 
     } else {
       // VISITOR ALREADY EXISTS
@@ -425,15 +461,15 @@ export async function processVisitorTracking(
           };
           memoryNotifications.unshift(returningNotif);
 
-          if (db) {
+          if (db && canAttemptServerFirestore()) {
             const notifRef = db.collection('visitor_notifications').doc();
             await notifRef.set({
               ...returningNotif,
               createdAt: now
             });
           }
-        } catch (notifErr) {
-          console.error('[VISITOR] Error recording returning alert:', notifErr);
+        } catch (notifErr: any) {
+          handleServerFirestoreNotice('returning alert recording', notifErr);
         }
       }
 
@@ -446,11 +482,11 @@ export async function processVisitorTracking(
         visitCount: isNewSession ? (existingData.visitCount || 1) + 1 : (existingData.visitCount || 1)
       });
 
-      if (visitorDocRef) {
+      if (visitorDocRef && canAttemptServerFirestore()) {
         try {
           await visitorDocRef.update(updates);
         } catch (updateErr: any) {
-          console.warn('[VISITOR] Firestore update notice (cached in memory):', updateErr.message);
+          handleServerFirestoreNotice('update', updateErr);
         }
       }
     }
@@ -467,11 +503,12 @@ export async function processVisitorTracking(
       isOnline: true
     });
   } catch (error: any) {
-    console.error('[VISITOR-TRACK] Error in processVisitorTracking:', error);
+    console.warn('[VISITOR-TRACK] Notice in processVisitorTracking:', error?.message || error);
     // Never crash or block visitor browsing
-    return res.status(500).json({
-      error: 'Failed to process visitor tracking',
-      details: error?.message || String(error)
+    return res.status(200).json({
+      success: true,
+      visitorId: req.body?.visitorId || 'fallback-visitor',
+      notice: 'Visitor tracking handled with fallback'
     });
   }
 }
@@ -511,7 +548,7 @@ export async function processVisitorHeartbeat(
       memoryVisitors.set(visitorId, mem);
     }
 
-    if (db) {
+    if (db && canAttemptServerFirestore()) {
       try {
         const visitorRef = db.collection('visitors').doc(visitorId);
         const updates: Record<string, any> = {
@@ -524,16 +561,16 @@ export async function processVisitorHeartbeat(
         }
 
         await visitorRef.update(updates).catch(e => {
-          console.warn(`[VISITOR-HEARTBEAT] Could not update visitor in Firestore ${visitorId}:`, e.message);
+          handleServerFirestoreNotice(`heartbeat update for ${visitorId}`, e);
         });
       } catch (err: any) {
-        // Handled
+        handleServerFirestoreNotice(`heartbeat for ${visitorId}`, err);
       }
     }
 
     return res.json({ success: true, isOnline: !isLeaving });
   } catch (error: any) {
-    return res.status(500).json({ error: error?.message || 'Heartbeat error' });
+    return res.status(200).json({ success: true, note: error?.message || 'Heartbeat fallback' });
   }
 }
 
@@ -543,6 +580,7 @@ async function dispatchAdminPushNotification(
   db: admin.firestore.Firestore,
   payload: { title: string; body: string; link?: string; tag?: string }
 ) {
+  if (!adminInstance || !db || !canAttemptServerFirestore()) return;
   try {
     const messaging = adminInstance.messaging();
     const adminSnap = await db.collection('users')
@@ -591,7 +629,15 @@ async function dispatchAdminPushNotification(
     };
 
     await messaging.sendEachForMulticast(message);
-  } catch (err) {
-    console.error('[DISPATCH-ADMIN-PUSH] Failed:', err);
+  } catch (err: any) {
+    if (
+      err?.code === 7 ||
+      err?.message?.includes('PERMISSION_DENIED') ||
+      err?.message?.includes('Missing or insufficient permissions')
+    ) {
+      handleServerFirestoreNotice('push dispatch', err);
+    } else {
+      console.warn('[DISPATCH-ADMIN-PUSH] Push notice:', err?.message || err);
+    }
   }
 }

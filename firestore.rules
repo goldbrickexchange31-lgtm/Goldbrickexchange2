@@ -37,6 +37,7 @@ service cloud.firestore {
              && data.balance is number
              && data.role in ['user', 'admin']
              && data.status in ['active', 'suspended']
+             && (!('accountStatus' in data) || data.accountStatus in ['active', 'inactive'])
              && data.uid is string && data.uid.size() <= 128
              && data.referralCode is string && data.referralCode.size() <= 20
              && (!('referredBy' in data) || data.referredBy == null || (data.referredBy is string && data.referredBy.size() <= 128))
@@ -102,6 +103,7 @@ service cloud.firestore {
           && isImmutable('role') && isImmutable('uid')
           && isImmutable('email') && isImmutable('createdAt')
           && isImmutable('referralCode') && isImmutable('referredBy')
+          && isImmutable('accountStatus')
         )) ||
         (request.auth.uid != userId && incoming().diff(existing()).affectedKeys().hasOnly(['balance', 'referralEarnings']))
       );
@@ -158,10 +160,26 @@ service cloud.firestore {
       allow write, delete: if isAdmin();
     }
 
-    // 5. Config
+    // 5. Config & Settings
     match /config/general {
       allow read: if true;
       allow write: if isAdmin();
+    }
+
+    match /settings/{settingId} {
+      allow read: if isSignedIn() || isAdmin();
+      allow write: if isAdmin();
+    }
+
+    // 5b. Account Activation Requests
+    match /activationRequests/{reqId} {
+      allow read, list: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isSignedIn() && isValidId(reqId)
+                    && incoming().userId == request.auth.uid
+                    && incoming().status == 'pending'
+                    && incoming().amount is number && incoming().amount > 0
+                    && (incoming().submittedAt == request.time || incoming().submittedAt == null);
+      allow update, delete: if isAdmin();
     }
 
     // 6. Support Chats

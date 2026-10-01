@@ -45,6 +45,8 @@ import { formatDistanceToNow } from 'date-fns';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { IOSInstallGuide } from '../components/IOSInstallGuide';
+import InactiveAccountModal from '../components/InactiveAccountModal';
+import InactiveAccountCard from '../components/InactiveAccountCard';
 
 export default function Dashboard() {
   const { user, userData } = useAuth();
@@ -54,7 +56,68 @@ export default function Dashboard() {
   const [globalActivity, setGlobalActivity] = useState<any[]>([]);
   const [now, setNow] = useState(new Date());
   const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
+  const [isInactiveModalOpen, setIsInactiveModalOpen] = useState(false);
+  const [activationConfig, setActivationConfig] = useState<any>(null);
+  const [latestActivationReq, setLatestActivationReq] = useState<any>(null);
   const navigate = useNavigate();
+
+  const isInactive = userData?.accountStatus === 'inactive';
+
+  // Dynamic activation settings from admin config
+  const activationFee = activationConfig?.amount ?? 50;
+  const activationCurrency = activationConfig?.currency || '$';
+
+  // Listen for admin activation configuration
+  useEffect(() => {
+    const unsub = onSnapshot(doc(db, 'settings', 'accountActivation'), (snap) => {
+      if (snap.exists()) {
+        setActivationConfig(snap.data());
+      }
+    }, (err) => {
+      console.warn('Activation settings note:', err?.message || err);
+    });
+    return () => unsub();
+  }, []);
+
+  // Listen for user's latest activation request
+  useEffect(() => {
+    if (!userData?.uid) return;
+    const q = query(
+      collection(db, 'activationRequests'),
+      where('userId', '==', userData.uid),
+      orderBy('submittedAt', 'desc'),
+      limit(1)
+    );
+    const unsub = onSnapshot(q, (snap) => {
+      if (!snap.empty) {
+        setLatestActivationReq({ id: snap.docs[0].id, ...snap.docs[0].data() });
+      } else {
+        setLatestActivationReq(null);
+      }
+    }, (err) => {
+      console.warn('User activation request note:', err?.message || err);
+    });
+    return () => unsub();
+  }, [userData?.uid]);
+
+  // Handle first-time dashboard entry modal for inactive accounts
+  useEffect(() => {
+    if (isInactive && userData?.uid) {
+      const dismissed = sessionStorage.getItem(`goldbrick_inactive_modal_dismissed_${userData.uid}`);
+      if (!dismissed) {
+        setIsInactiveModalOpen(true);
+      }
+    } else {
+      setIsInactiveModalOpen(false);
+    }
+  }, [isInactive, userData?.uid]);
+
+  const handleDismissInactiveModal = () => {
+    setIsInactiveModalOpen(false);
+    if (userData?.uid) {
+      sessionStorage.setItem(`goldbrick_inactive_modal_dismissed_${userData.uid}`, 'true');
+    }
+  };
 
   useEffect(() => {
     const timer = setInterval(() => setNow(new Date()), 10000); 
@@ -186,7 +249,7 @@ export default function Dashboard() {
         await batch.commit();
         toast.success(`Successfully claimed returns from ${expired.length} matured investment(s)!`);
       } catch (error) {
-        console.error("Auto-settle error:", error);
+        console.warn("Auto-settle note:", (error as any)?.message || error);
       } finally {
         isSettlingRef.current = false;
       }
@@ -209,7 +272,27 @@ export default function Dashboard() {
         isOpen={showIOSInstructions} 
         onClose={() => setShowIOSInstructions(false)} 
       />
+      <InactiveAccountModal
+        isOpen={isInactive && isInactiveModalOpen}
+        onClose={handleDismissInactiveModal}
+        activationFee={activationFee}
+        activationCurrency={activationCurrency}
+        hasPendingRequest={latestActivationReq?.status === 'pending'}
+      />
       <div className="space-y-10 pb-12">
+        {/* Persistent Inactive Account Status Card */}
+        {isInactive && (
+          <div className="animate-in fade-in slide-in-from-top-4 duration-500">
+            <InactiveAccountCard
+              activationFee={activationFee}
+              activationCurrency={activationCurrency}
+              hasPendingRequest={latestActivationReq?.status === 'pending'}
+              rejectionReason={latestActivationReq?.status === 'rejected' ? latestActivationReq?.rejectionReason : null}
+              submittedAt={latestActivationReq?.submittedAt}
+            />
+          </div>
+        )}
+
         {/* Top Header Section */}
         <section className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
           <div className="space-y-1">
@@ -217,13 +300,10 @@ export default function Dashboard() {
              <p className="text-white/40 font-mono text-[9px] md:text-[10px] uppercase tracking-[0.2em] md:tracking-[0.3em] font-bold">Welcome Back: {userData?.displayName?.toUpperCase()}</p>
           </div>
           <div className="flex flex-wrap items-center gap-3 w-full md:w-auto">
-             <Button onClick={() => setIsChangePasswordOpen(true)} variant="outline" className="flex-1 md:flex-none border-border bg-white/5 font-black uppercase text-[10px] tracking-widest h-10 md:h-12 px-4 md:px-5 rounded-xl text-white hover:bg-white/10 transition-all cursor-pointer">
-               <KeyRound className="size-3.5 mr-1.5 text-primary" /> Password
-             </Button>
-             <Button onClick={() => navigate('/withdraw')} variant="outline" className="flex-1 md:flex-none border-border bg-secondary font-black uppercase text-[10px] tracking-widest h-10 md:h-12 px-4 md:px-6 rounded-xl text-secondary-foreground hover:bg-secondary/80 transition-all">
+             <Button onClick={() => navigate('/withdraw')} variant="outline" className="flex-1 md:flex-none border-border bg-secondary font-black uppercase text-[10px] tracking-widest h-10 md:h-12 px-4 md:px-6 rounded-xl text-secondary-foreground hover:bg-secondary/80 transition-all cursor-pointer">
                Withdraw
              </Button>
-             <Button onClick={() => navigate('/deposit')} className="flex-1 md:flex-none bg-primary text-primary-foreground font-black uppercase text-[10px] tracking-widest h-10 md:h-12 px-6 md:px-8 rounded-xl shadow-lg shadow-primary/20 hover:scale-[1.02] transition-all">
+             <Button onClick={() => navigate('/deposit')} className="flex-1 md:flex-none bg-primary text-primary-foreground font-black uppercase text-[10px] tracking-widest h-10 md:h-12 px-6 md:px-8 rounded-xl shadow-lg shadow-primary/20 hover:scale-[1.02] transition-all cursor-pointer">
                <Plus className="size-4 mr-1 md:mr-2" /> Top-Up
              </Button>
           </div>

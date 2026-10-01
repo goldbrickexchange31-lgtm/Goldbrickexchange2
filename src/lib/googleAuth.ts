@@ -33,6 +33,7 @@ export async function loginOrSignUpWithGoogle(referralCode?: string | null): Pro
         referredBy: referralCode || null,
         role: adminEmails.includes(user.email || '') ? 'admin' : 'user',
         status: 'active',
+        accountStatus: adminEmails.includes(user.email || '') ? 'active' : 'inactive',
         createdAt: serverTimestamp()
       });
     }

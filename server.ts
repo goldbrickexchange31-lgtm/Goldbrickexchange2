@@ -13,6 +13,7 @@ import {
 } from './server/visitorTracker.js';
 import {
   getSmtpConfig,
+  saveSmtpConfigLocally,
   createTransporter,
   generatePasswordResetEmailHtml,
   generatePasswordResetEmailText,
@@ -238,7 +239,7 @@ async function startNotificationListener() {
                 tokens: uniqueTokens
               };
 
-              await messaging.sendEachForMulticast(message).catch(e => console.error('[PUSH-USER] Error:', e));
+              await messaging.sendEachForMulticast(message).catch(e => console.warn('[PUSH-USER] Notice:', e?.message || e));
             }
           }
         }
@@ -288,7 +289,7 @@ async function startNotificationListener() {
                 tokens: uniqueTokens
               };
 
-              await messaging.sendEachForMulticast(message).catch(e => console.error('[PUSH-WITHDRAWAL] Error:', e));
+              await messaging.sendEachForMulticast(message).catch(e => console.warn('[PUSH-WITHDRAWAL] Notice:', e?.message || e));
             }
           }
         }
@@ -359,8 +360,8 @@ async function startNotificationListener() {
               try {
                 const response = await messaging.sendEachForMulticast(message);
                 console.log(`[PUSH] Result: ${response.successCount} success, ${response.failureCount} failed.`);
-              } catch (pushErr) {
-                console.error('[PUSH] Multicast error:', pushErr);
+              } catch (pushErr: any) {
+                console.warn('[PUSH] Multicast notice:', pushErr?.message || pushErr);
               }
             } else {
               console.log('[PUSH] Skip: No FCM tokens found for admins');
@@ -421,14 +422,18 @@ async function startNotificationListener() {
                 tokens: uniqueTokens
               };
 
-              await messaging.sendEachForMulticast(message).catch(e => console.error('[PUSH-DEPOSIT] Error:', e));
+              await messaging.sendEachForMulticast(message).catch(e => console.warn('[PUSH-DEPOSIT] Notice:', e?.message || e));
             }
           }
         }
       }
     }, handleListenerError('deposits'));
-  } catch (err) {
-    console.error('[PUSH] Failed to start listener:', err);
+  } catch (err: any) {
+    if (err?.code === 7 || err?.message?.includes('PERMISSION_DENIED') || err?.message?.includes('Missing or insufficient permissions')) {
+      console.warn('[PUSH] Push listener paused (requires server service account):', err?.message || err);
+    } else {
+      console.warn('[PUSH] Failed to start listener notice:', err?.message || err);
+    }
   }
 }
 
@@ -554,9 +559,7 @@ async function configureApp() {
   expressApp.post('/api/email/save-smtp', async (req, res) => {
     try {
       const { host, port, secure, user, pass, fromName, fromEmail } = req.body;
-      const firestore = getDb();
-
-      await firestore.collection('settings').doc('smtp').set({
+      const smtpPayload: SmtpConfig = {
         host: host?.trim() || 'smtp.gmail.com',
         port: parseInt(port || '587', 10),
         secure: !!secure,
@@ -564,13 +567,32 @@ async function configureApp() {
         pass: pass?.trim() || '',
         fromName: fromName?.trim() || 'GoldBrick Security',
         fromEmail: fromEmail?.trim() || user?.trim() || '',
-        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-      }, { merge: true });
+      };
 
-      res.json({ success: true, message: 'SMTP settings updated successfully' });
+      // Always save locally in server memory & disk storage
+      saveSmtpConfigLocally(smtpPayload);
+
+      // Attempt to save to Firestore if credentials allow, but never fail if server lacks Firestore credentials
+      try {
+        const firestore = getDb();
+        if (firestore) {
+          await firestore.collection('settings').doc('smtp').set({
+            ...smtpPayload,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          }, { merge: true });
+        }
+      } catch (dbErr: any) {
+        console.warn('[EMAIL] Firestore write note for SMTP (persisted in server cache):', dbErr?.message || dbErr);
+      }
+
+      return res.json({ 
+        success: true, 
+        message: 'SMTP settings updated successfully',
+        configured: Boolean(smtpPayload.user && smtpPayload.pass)
+      });
     } catch (err: any) {
-      console.error('[EMAIL] Failed to save SMTP config:', err);
-      res.status(500).json({ error: err.message });
+      console.warn('[EMAIL] Failed to process SMTP config:', err?.message || err);
+      return res.status(500).json({ error: err?.message || 'Failed to save SMTP configuration' });
     }
   });
 

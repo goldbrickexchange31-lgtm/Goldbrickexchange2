@@ -50,6 +50,7 @@ function AppRoutes() {
       <Route path="/admin/login" element={<AdminLogin />} />
       
       <Route path="/dashboard" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+      <Route path="/activate" element={<ProtectedRoute><DepositPage isActivationFlow={true} /></ProtectedRoute>} />
       <Route path="/invest" element={<ProtectedRoute><InvestPage /></ProtectedRoute>} />
       <Route path="/deposit" element={<ProtectedRoute><DepositPage /></ProtectedRoute>} />
       <Route path="/withdraw" element={<ProtectedRoute><WithdrawPage /></ProtectedRoute>} />

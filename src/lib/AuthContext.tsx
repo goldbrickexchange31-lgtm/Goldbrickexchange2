@@ -15,6 +15,7 @@ interface UserData {
   referredBy?: string | null;
   role: 'user' | 'admin';
   status: 'active' | 'suspended';
+  accountStatus?: 'active' | 'inactive';
   fcmTokens?: string[];
   lastTokenUpdate?: string;
 }
@@ -59,6 +60,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
               referralCode: myReferralCode,
               role: adminEmails.includes(u.email || '') ? 'admin' : 'user',
               status: 'active',
+              accountStatus: adminEmails.includes(u.email || '') ? 'active' : 'inactive',
               createdAt: serverTimestamp()
             });
           }

@@ -1,0 +1,9 @@
+{
+  "host": "smtp.gmail.com",
+  "port": 587,
+  "secure": false,
+  "user": "testadmin@goldbrick.com",
+  "pass": "testapppassword123",
+  "fromName": "GoldBrick Security",
+  "fromEmail": "testadmin@goldbrick.com"
+}

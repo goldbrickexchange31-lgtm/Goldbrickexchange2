@@ -73,7 +73,8 @@ import {
   serverTimestamp,
   where,
   getDocs,
-  writeBatch
+  writeBatch,
+  limit
 } from 'firebase/firestore';
 import { signOut } from 'firebase/auth';
 import { toast } from 'sonner';
@@ -81,8 +82,9 @@ import { format, isToday } from 'date-fns';
 import { Link, useNavigate } from 'react-router-dom';
 import { handleFirestoreError, OperationType } from '../lib/errorHandlers';
 import AdminLiveVisitors, { VisitorRecord } from '../components/AdminLiveVisitors';
+import ProofLightboxModal from '../components/ProofLightboxModal';
 
-type Section = 'overview' | 'users' | 'investment' | 'deposit' | 'withdrawal' | 'visitors' | 'chat' | 'settings' | 'wallets';
+type Section = 'overview' | 'users' | 'activations' | 'investment' | 'deposit' | 'withdrawal' | 'visitors' | 'chat' | 'settings' | 'wallets';
 
 export default function AdminDashboard() {
   const { userData } = useAuth();
@@ -94,6 +96,20 @@ export default function AdminDashboard() {
   const [visitors, setVisitors] = useState<VisitorRecord[]>([]);
   const initialVisitorAlertsLoadedRef = useRef(false);
   const [transactions, setTransactions] = useState<any[]>([]);
+  const [activationRequests, setActivationRequests] = useState<any[]>([]);
+  const [activationConfig, setActivationConfig] = useState<any>({
+    amount: 50,
+    currency: '$',
+    isRequired: true
+  });
+  const [activationFilter, setActivationFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
+  const [activationSearchTerm, setActivationSearchTerm] = useState('');
+  const [selectedActivationProof, setSelectedActivationProof] = useState<any>(null);
+  const [approvingActivation, setApprovingActivation] = useState<any>(null);
+  const [rejectingActivation, setRejectingActivation] = useState<any>(null);
+  const [rejectionReasonInput, setRejectionReasonInput] = useState('');
+  const [deactivatingUser, setDeactivatingUser] = useState<any>(null);
+  const [isSavingActivationConfig, setIsSavingActivationConfig] = useState(false);
   const [plans, setPlans] = useState<any[]>([]);
   const [wallets, setWallets] = useState<any[]>([]);
   const [config, setConfig] = useState<any>({
@@ -157,25 +173,25 @@ export default function AdminDashboard() {
   useEffect(() => {
     const unsubUsers = onSnapshot(query(collection(db, 'users'), orderBy('createdAt', 'desc')), (snap) => {
       setUsers(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    }, (e) => console.error('Users snapshot error:', e));
+    }, (e) => console.warn('Users snapshot notice:', e.message || e));
 
     const unsubTx = onSnapshot(query(collection(db, 'transactions'), orderBy('createdAt', 'desc')), (snap) => {
       setTransactions(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    }, (e) => console.error('Transactions snapshot error:', e));
+    }, (e) => console.warn('Transactions snapshot notice:', e.message || e));
 
     const unsubPlans = onSnapshot(collection(db, 'plans'), (snap) => {
       const sortedPlans = snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as any))
         .sort((a, b) => (a.minDeposit || 0) - (b.minDeposit || 0));
       setPlans(sortedPlans);
-    }, (e) => console.error('Plans snapshot error:', e));
+    }, (e) => console.warn('Plans snapshot notice:', e.message || e));
 
     const unsubWallets = onSnapshot(collection(db, 'wallets'), (snap) => {
       setWallets(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    }, (e) => console.error('Wallets snapshot error:', e));
+    }, (e) => console.warn('Wallets snapshot notice:', e.message || e));
 
     const unsubConfig = onSnapshot(doc(db, 'config', 'general'), (snap) => {
       if (snap.exists()) setConfig(prev => ({ ...prev, ...snap.data() }));
-    }, (e) => console.error('Config snapshot error:', e));
+    }, (e) => console.warn('Config snapshot notice:', e.message || e));
 
     const unsubSmtp = onSnapshot(doc(db, 'settings', 'smtp'), (snap) => {
       if (snap.exists()) {
@@ -191,7 +207,25 @@ export default function AdminDashboard() {
           fromEmail: data.fromEmail || prev.fromEmail,
         }));
       }
-    }, (e) => console.error('SMTP snapshot error:', e));
+    }, (e) => console.warn('SMTP snapshot notice:', e.message || e));
+
+    // Also fetch initial SMTP configuration status from server API
+    fetch('/api/email/status')
+      .then(res => res.json())
+      .then(data => {
+        if (data && data.configured) {
+          setSmtpConfig((prev: any) => ({
+            ...prev,
+            host: data.host || prev.host,
+            port: data.port || prev.port,
+            secure: data.secure !== undefined ? data.secure : prev.secure,
+            user: data.user || prev.user,
+            fromName: data.fromName || prev.fromName,
+            fromEmail: data.fromEmail || prev.fromEmail,
+          }));
+        }
+      })
+      .catch(() => {});
 
     // Live Visitors listener
     const unsubVisitors = onSnapshot(
@@ -199,7 +233,7 @@ export default function AdminDashboard() {
       (snap) => {
         setVisitors(snap.docs.map(doc => ({ id: doc.id, ...doc.data() } as VisitorRecord)));
       },
-      (e) => console.error('Visitors snapshot error:', e)
+      (e) => console.warn('Visitors snapshot notice:', e.message || e)
     );
 
     // Real-Time Visitor Notification Alerts (Fires when new visitors arrive)
@@ -258,7 +292,7 @@ export default function AdminDashboard() {
           }
         });
       },
-      (e) => console.error('Visitor alerts snapshot error:', e)
+      (e) => console.warn('Visitor alerts snapshot notice:', e.message || e)
     );
 
     // Notification Setup
@@ -274,10 +308,30 @@ export default function AdminDashboard() {
           unsubscribeForeground = unsub;
         }
       } catch (e) {
-        console.error("FCM: Notification setup failed", e);
+        console.warn("FCM: Notification setup note:", (e as any)?.message || e);
       }
     };
     setupNotifications();
+
+    // Account Activation Requests listener
+    const unsubActivationReqs = onSnapshot(
+      query(collection(db, 'activationRequests'), orderBy('submittedAt', 'desc')),
+      (snap) => {
+        setActivationRequests(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      },
+      (e) => console.warn('Activation requests snapshot notice:', e.message || e)
+    );
+
+    // Account Activation Config listener
+    const unsubActivationConfig = onSnapshot(
+      doc(db, 'settings', 'accountActivation'),
+      (snap) => {
+        if (snap.exists()) {
+          setActivationConfig((prev: any) => ({ ...prev, ...snap.data() }));
+        }
+      },
+      (e) => console.warn('Activation settings snapshot notice:', e.message || e)
+    );
 
     setLoading(false);
     return () => {
@@ -288,9 +342,131 @@ export default function AdminDashboard() {
       unsubConfig();
       unsubVisitors();
       unsubVisitorNotifs();
+      unsubActivationReqs();
+      unsubActivationConfig();
       if (unsubscribeForeground) unsubscribeForeground();
     };
   }, []);
+
+  const handleSaveActivationConfig = async (override?: any) => {
+    const target = override || activationConfig;
+    setIsSavingActivationConfig(true);
+    try {
+      const amountVal = parseFloat(String(target.amount)) || 50;
+      const currencyVal = target.currency?.trim() || '$';
+      await setDoc(doc(db, 'settings', 'accountActivation'), {
+        amount: amountVal,
+        currency: currencyVal,
+        isRequired: target.isRequired !== undefined ? Boolean(target.isRequired) : true,
+        updatedAt: serverTimestamp(),
+        updatedBy: auth.currentUser?.email || 'admin'
+      }, { merge: true });
+      toast.success(`Account Activation Settings updated: ${currencyVal}${amountVal.toLocaleString()}`);
+    } catch (e: any) {
+      toast.error('Failed to update activation settings');
+    } finally {
+      setIsSavingActivationConfig(false);
+    }
+  };
+
+  const handleConfirmApproveActivation = async () => {
+    if (!approvingActivation) return;
+    const req = approvingActivation;
+    try {
+      // 1. Mark activation request as APPROVED
+      await updateDoc(doc(db, 'activationRequests', req.id), {
+        status: 'approved',
+        approvedAt: serverTimestamp(),
+        approvedBy: auth.currentUser?.email || 'admin'
+      });
+
+      // 2. Set user's account status to ACTIVE
+      await updateDoc(doc(db, 'users', req.userId), {
+        accountStatus: 'active',
+        updatedAt: serverTimestamp()
+      });
+
+      // 3. Sync corresponding transaction if present
+      try {
+        const qTx = query(
+          collection(db, 'transactions'),
+          where('userId', '==', req.userId),
+          where('description', '==', 'Account Activation Fee'),
+          limit(1)
+        );
+        const snapTx = await getDocs(qTx);
+        if (!snapTx.empty) {
+          await updateDoc(doc(db, 'transactions', snapTx.docs[0].id), {
+            status: 'approved',
+            updatedAt: serverTimestamp()
+          });
+        }
+      } catch (tErr) {
+        console.warn('Transaction sync note on activation:', tErr);
+      }
+
+      toast.success(`Account activated successfully for ${req.userName || req.userEmail}!`);
+    } catch (e: any) {
+      toast.error('Could not approve activation. Please verify permissions.');
+    } finally {
+      setApprovingActivation(null);
+    }
+  };
+
+  const handleConfirmRejectActivation = async () => {
+    if (!rejectingActivation) return;
+    const req = rejectingActivation;
+    try {
+      const note = rejectionReasonInput.trim() || 'Your activation payment could not be verified. Please review the payment details and submit valid proof.';
+      // 1. Mark activation request as REJECTED
+      await updateDoc(doc(db, 'activationRequests', req.id), {
+        status: 'rejected',
+        rejectionReason: note,
+        reviewedAt: serverTimestamp(),
+        reviewedBy: auth.currentUser?.email || 'admin'
+      });
+
+      // 2. Ensure user account status remains INACTIVE
+      await updateDoc(doc(db, 'users', req.userId), {
+        accountStatus: 'inactive',
+        updatedAt: serverTimestamp()
+      });
+
+      toast.info(`Activation request rejected.`);
+    } catch (e: any) {
+      toast.error('Could not reject activation request.');
+    } finally {
+      setRejectingActivation(null);
+      setRejectionReasonInput('');
+    }
+  };
+
+  const handleDirectActivateUser = async (user: any) => {
+    try {
+      await updateDoc(doc(db, 'users', user.id), {
+        accountStatus: 'active',
+        updatedAt: serverTimestamp()
+      });
+      toast.success(`Account activated for ${user.displayName || user.email}!`);
+    } catch (e: any) {
+      toast.error('Failed to activate account.');
+    }
+  };
+
+  const handleConfirmDeactivateUser = async () => {
+    if (!deactivatingUser) return;
+    try {
+      await updateDoc(doc(db, 'users', deactivatingUser.id), {
+        accountStatus: 'inactive',
+        updatedAt: serverTimestamp()
+      });
+      toast.info(`Account deactivated for ${deactivatingUser.displayName || deactivatingUser.email}. All data preserved.`);
+    } catch (e: any) {
+      toast.error('Failed to deactivate account.');
+    } finally {
+      setDeactivatingUser(null);
+    }
+  };
 
   const fetchActiveVisitors = async () => {
     try {
@@ -408,6 +584,23 @@ export default function AdminDashboard() {
   const handleSaveSmtp = async () => {
     setSmtpSaving(true);
     try {
+      // 1. Client-side Firestore write (authenticated admin)
+      try {
+        await setDoc(doc(db, 'settings', 'smtp'), {
+          host: smtpConfig.host?.trim() || 'smtp.gmail.com',
+          port: parseInt(String(smtpConfig.port || 587), 10),
+          secure: Boolean(smtpConfig.secure),
+          user: smtpConfig.user?.trim() || '',
+          pass: smtpConfig.pass?.trim() || '',
+          fromName: smtpConfig.fromName?.trim() || 'GoldBrick Security',
+          fromEmail: smtpConfig.fromEmail?.trim() || smtpConfig.user?.trim() || '',
+          updatedAt: serverTimestamp(),
+        }, { merge: true });
+      } catch (clientErr: any) {
+        console.warn('Client Firestore save note for SMTP:', clientErr?.message || clientErr);
+      }
+
+      // 2. Server-side API write (persists to backend mail service)
       const res = await fetch('/api/email/save-smtp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -675,10 +868,13 @@ export default function AdminDashboard() {
     }).length;
   }, [visitors]);
 
+  const pendingActivationsCount = activationRequests.filter(r => r.status === 'pending').length;
+
   const sidebarItems = [
     { id: 'overview', label: 'Overview', icon: LayoutDashboard },
     { id: 'visitors', label: 'Live Visitors', icon: Globe, badge: onlineVisitorsCount > 0 ? `${onlineVisitorsCount} live` : undefined },
     { id: 'users', label: 'All Users', icon: Users },
+    { id: 'activations', label: 'Activation Requests', icon: ShieldCheck, badge: pendingActivationsCount > 0 ? pendingActivationsCount : undefined },
     { id: 'investment', label: 'Investment Plans', icon: BarChart2 },
     { id: 'wallets', label: 'Wallets manager', icon: Wallet },
     { id: 'deposit', label: 'Deposits', icon: ArrowDownLeft, badge: transactions.filter(t => t.type === 'deposit' && t.status === 'pending').length },
@@ -889,6 +1085,247 @@ export default function AdminDashboard() {
             </div>
           )}
 
+          {/* Account Activation Requests Section */}
+          {activeSection === 'activations' && (
+            <div className="space-y-8">
+              {/* Header & Quick Activation Fee Settings */}
+              <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-6 bg-card border border-border rounded-3xl p-6 sm:p-8 shadow-md">
+                <div className="space-y-2">
+                  <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-400 text-[10px] font-black uppercase tracking-widest">
+                    <ShieldCheck className="size-3.5" />
+                    Goldbrick Compliance Desk
+                  </div>
+                  <h2 className="text-2xl sm:text-3xl font-black italic uppercase tracking-tight text-white">
+                    Account Activation Requests
+                  </h2>
+                  <p className="text-white/40 text-xs font-medium">
+                    Review incoming user activation proof submissions and audit compliance approvals.
+                  </p>
+                </div>
+
+                {/* Inline Quick Activation Fee Config */}
+                <div className="w-full lg:w-auto bg-white/5 border border-white/10 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center gap-4">
+                  <div className="space-y-1">
+                    <Label className="text-[10px] font-black uppercase tracking-widest text-amber-400">
+                      Configured Activation Fee
+                    </Label>
+                    <div className="flex items-center gap-2">
+                      <Input
+                        type="text"
+                        value={activationConfig.currency || '$'}
+                        onChange={(e) => setActivationConfig({ ...activationConfig, currency: e.target.value })}
+                        className="w-16 h-10 bg-background border-border text-center font-black text-sm text-white rounded-xl"
+                        placeholder="$"
+                      />
+                      <Input
+                        type="number"
+                        value={activationConfig.amount ?? 50}
+                        onChange={(e) => setActivationConfig({ ...activationConfig, amount: parseFloat(e.target.value) || 0 })}
+                        className="w-36 h-10 bg-background border-border font-black text-sm text-white rounded-xl"
+                      />
+                    </div>
+                  </div>
+                  <Button
+                    onClick={() => handleSaveActivationConfig()}
+                    disabled={isSavingActivationConfig}
+                    className="h-10 px-4 bg-primary text-primary-foreground font-black text-[10px] uppercase tracking-widest rounded-xl hover:scale-105 transition-all self-end sm:self-center cursor-pointer"
+                  >
+                    Save Changes
+                  </Button>
+                </div>
+              </div>
+
+              {/* Filter Tabs & Search Header */}
+              <div className="flex flex-col md:flex-row items-center justify-between gap-4">
+                <div className="flex flex-wrap items-center gap-2 w-full md:w-auto">
+                  {(['all', 'pending', 'approved', 'rejected'] as const).map((filter) => {
+                    const count = filter === 'all' 
+                      ? activationRequests.length 
+                      : activationRequests.filter(r => r.status === filter).length;
+                    return (
+                      <button
+                        key={filter}
+                        type="button"
+                        onClick={() => setActivationFilter(filter)}
+                        className={`h-10 px-4 rounded-xl text-xs font-black uppercase tracking-wider transition-all flex items-center gap-2 cursor-pointer ${
+                          activationFilter === filter 
+                            ? 'bg-primary text-primary-foreground shadow-md' 
+                            : 'bg-white/5 hover:bg-white/10 text-white/60 hover:text-white border border-white/5'
+                        }`}
+                      >
+                        <span className="capitalize">{filter}</span>
+                        <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full ${
+                          activationFilter === filter ? 'bg-black/30 text-white' : 'bg-white/10 text-white/70'
+                        }`}>
+                          {count}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="relative w-full md:w-80">
+                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 size-4 text-white/40" />
+                  <Input 
+                    placeholder="Search by User or Email..." 
+                    className="bg-background border-border h-11 pl-11 rounded-xl text-xs text-white placeholder:text-white/40 shadow-sm"
+                    value={activationSearchTerm}
+                    onChange={(e) => setActivationSearchTerm(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              {/* Requests Table */}
+              <Card className="bg-card border-border rounded-3xl overflow-hidden shadow-md">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left">
+                    <thead className="bg-white/5 border-b border-border">
+                      <tr>
+                        <th className="p-6 text-[10px] font-black uppercase text-white/40">User Profile</th>
+                        <th className="p-6 text-[10px] font-black uppercase text-white/40">Activation Fee</th>
+                        <th className="p-6 text-[10px] font-black uppercase text-white/40">Submission Date</th>
+                        <th className="p-6 text-[10px] font-black uppercase text-white/40">Payment Proof</th>
+                        <th className="p-6 text-[10px] font-black uppercase text-white/40">Audit Status</th>
+                        <th className="p-6 text-right text-[10px] font-black uppercase text-white/40">Actions / Ledger</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {activationRequests
+                        .filter(r => activationFilter === 'all' || r.status === activationFilter)
+                        .filter(r => {
+                          if (!activationSearchTerm.trim()) return true;
+                          const term = activationSearchTerm.toLowerCase();
+                          return (
+                            r.userName?.toLowerCase().includes(term) ||
+                            r.userEmail?.toLowerCase().includes(term) ||
+                            r.userId?.toLowerCase().includes(term)
+                          );
+                        })
+                        .map((req) => (
+                          <tr key={req.id} className="hover:bg-white/5 transition-all group">
+                            <td className="p-6">
+                              <div className="flex items-center gap-3">
+                                <div className="size-11 rounded-2xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center font-black italic text-amber-400 text-lg">
+                                  {req.userName?.[0]?.toUpperCase() || 'U'}
+                                </div>
+                                <div>
+                                  <p className="font-black text-white italic text-sm group-hover:text-primary transition-colors">
+                                    {req.userName || 'Investor'}
+                                  </p>
+                                  <p className="text-[10px] text-white/40 font-mono font-bold">{req.userEmail}</p>
+                                  <p className="text-[9px] text-white/20 font-mono select-all">UID: {req.userId}</p>
+                                </div>
+                              </div>
+                            </td>
+                            <td className="p-6">
+                              <p className="text-lg font-black italic text-white font-mono">
+                                {req.currency || '$'}{Number(req.amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                              </p>
+                              <p className="text-[9px] text-white/40 font-bold uppercase tracking-widest mt-0.5">
+                                {req.network || 'Vault Wire'}
+                              </p>
+                            </td>
+                            <td className="p-6 text-white/60 font-mono text-xs">
+                              {req.submittedAt?.toDate 
+                                ? format(req.submittedAt.toDate(), 'MMM dd, yyyy HH:mm') 
+                                : req.submittedAt ? String(req.submittedAt) : 'Pending'}
+                            </td>
+                            <td className="p-6">
+                              {req.paymentProof ? (
+                                <div className="flex items-center gap-3">
+                                  <div 
+                                    onClick={() => setSelectedActivationProof(req)}
+                                    className="relative size-12 rounded-xl overflow-hidden border border-white/20 cursor-pointer hover:border-primary transition-all shrink-0 bg-black/40 group/thumb"
+                                  >
+                                    <img 
+                                      src={req.paymentProof} 
+                                      alt="Proof thumbnail" 
+                                      className="w-full h-full object-cover group-hover/thumb:scale-110 transition-transform"
+                                    />
+                                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover/thumb:opacity-100 flex items-center justify-center transition-opacity">
+                                      <Eye className="size-4 text-white" />
+                                    </div>
+                                  </div>
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => setSelectedActivationProof(req)}
+                                    className="h-8 px-2.5 text-[10px] font-black uppercase rounded-lg border-white/10 hover:bg-white/10 text-white cursor-pointer"
+                                  >
+                                    View Proof
+                                  </Button>
+                                </div>
+                              ) : (
+                                <span className="text-white/20 font-mono text-xs italic">No Proof Attached</span>
+                              )}
+                            </td>
+                            <td className="p-6">
+                              <Badge className={`uppercase text-[9px] font-black px-2.5 py-1 rounded-md border ${
+                                req.status === 'approved' 
+                                  ? 'bg-green-500/15 text-green-400 border-green-500/30' 
+                                  : req.status === 'rejected' 
+                                  ? 'bg-red-500/15 text-red-400 border-red-500/30' 
+                                  : 'bg-amber-500/15 text-amber-400 border-amber-500/30'
+                              }`}>
+                                {req.status === 'approved' ? 'APPROVED' : req.status === 'rejected' ? 'REJECTED' : 'PENDING'}
+                              </Badge>
+                            </td>
+                            <td className="p-6 text-right">
+                              {req.status === 'pending' ? (
+                                <div className="flex items-center justify-end gap-2">
+                                  <Button 
+                                    size="sm" 
+                                    className="h-9 bg-green-600 hover:bg-green-500 text-white font-black text-[10px] uppercase rounded-xl px-4 transition-all shadow-md cursor-pointer"
+                                    onClick={() => setApprovingActivation(req)}
+                                  >
+                                    <Check className="size-3.5 mr-1" /> Approve
+                                  </Button>
+                                  <Button 
+                                    size="sm" 
+                                    variant="outline"
+                                    className="h-9 border-red-500/30 text-red-400 hover:bg-red-500/20 text-[10px] font-black uppercase rounded-xl px-3 transition-all cursor-pointer"
+                                    onClick={() => {
+                                      setRejectingActivation(req);
+                                      setRejectionReasonInput('Your activation payment could not be verified. Please review the payment details and submit valid proof.');
+                                    }}
+                                  >
+                                    <X className="size-3.5 mr-1" /> Reject
+                                  </Button>
+                                </div>
+                              ) : req.status === 'approved' ? (
+                                <div className="text-right">
+                                  <p className="text-green-400 text-xs font-bold uppercase tracking-wider">Active Member</p>
+                                  <p className="text-[10px] font-mono text-white/40">
+                                    Approved by {req.approvedBy?.split('@')[0] || 'Admin'}
+                                  </p>
+                                </div>
+                              ) : (
+                                <div className="text-right">
+                                  <p className="text-red-400 text-xs font-bold uppercase tracking-wider">Payment Declined</p>
+                                  {req.rejectionReason && (
+                                    <p className="text-[10px] text-white/50 italic max-w-xs ml-auto line-clamp-2" title={req.rejectionReason}>
+                                      "{req.rejectionReason}"
+                                    </p>
+                                  )}
+                                </div>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                    </tbody>
+                  </table>
+
+                  {activationRequests.filter(r => activationFilter === 'all' || r.status === activationFilter).length === 0 && (
+                    <div className="py-20 text-center text-white/30 italic uppercase font-black text-xs tracking-widest">
+                      No activation requests found in this category
+                    </div>
+                  )}
+                </div>
+              </Card>
+            </div>
+          )}
+
           {/* Users Section */}
           {activeSection === 'users' && (
             <div className="space-y-8">
@@ -914,7 +1351,8 @@ export default function AdminDashboard() {
                               <th className="p-6 text-[10px] font-black uppercase text-white/40">User Profile</th>
                               <th className="p-6 text-[10px] font-black uppercase text-white/40">Balance Status</th>
                               <th className="p-6 text-[10px] font-black uppercase text-white/40">Referral ID</th>
-                              <th className="p-6 text-[10px] font-black uppercase text-white/40">Site Status</th>
+                              <th className="p-6 text-[10px] font-black uppercase text-white/40">Account Status</th>
+                              <th className="p-6 text-[10px] font-black uppercase text-white/40">Access</th>
                               <th className="p-6 text-right text-[10px] font-black uppercase text-white/40">Actions</th>
                            </tr>
                         </thead>
@@ -940,22 +1378,54 @@ export default function AdminDashboard() {
                                    <p className="text-xs font-mono font-bold text-white/40 select-all">{u.referralCode || 'NONE'}</p>
                                 </td>
                                 <td className="p-6">
+                                   {u.accountStatus === 'inactive' ? (
+                                     <Badge className="uppercase text-[9px] font-black px-2.5 py-1 rounded-md border border-amber-500/30 bg-amber-500/15 text-amber-400 flex items-center gap-1.5 w-fit">
+                                        <span className="size-1.5 rounded-full bg-amber-400" />
+                                        INACTIVE
+                                     </Badge>
+                                   ) : (
+                                     <Badge className="uppercase text-[9px] font-black px-2.5 py-1 rounded-md border border-green-500/30 bg-green-500/15 text-green-400 flex items-center gap-1.5 w-fit">
+                                        <span className="size-1.5 rounded-full bg-green-400" />
+                                        ACTIVE
+                                     </Badge>
+                                   )}
+                                </td>
+                                <td className="p-6">
                                    <Badge className={`uppercase text-[9px] font-black px-2 py-0.5 rounded-md border-none ${u.status === 'active' ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'}`}>
                                       {u.status}
                                    </Badge>
                                 </td>
                                 <td className="p-6 text-right">
-                                   <div className="flex items-center justify-end gap-3">
-                                      <Button size="sm" variant="outline" className="h-10 border-border bg-background text-[10px] font-black uppercase rounded-xl hover:bg-white/5 text-white" onClick={() => handleModifyBalance(u)}>
+                                   <div className="flex items-center justify-end gap-2">
+                                      <Button size="sm" variant="outline" className="h-9 border-border bg-background text-[10px] font-black uppercase rounded-xl hover:bg-white/5 text-white" onClick={() => handleModifyBalance(u)}>
                                          Set Balance
                                       </Button>
+                                      {u.accountStatus === 'inactive' ? (
+                                        <Button 
+                                          size="sm" 
+                                          className="h-9 bg-green-600/20 text-green-400 border border-green-500/30 hover:bg-green-600 hover:text-white text-[10px] font-black uppercase rounded-xl px-3 transition-colors cursor-pointer"
+                                          onClick={() => handleDirectActivateUser(u)}
+                                        >
+                                           Activate
+                                        </Button>
+                                      ) : (
+                                        <Button 
+                                          size="sm" 
+                                          variant="outline"
+                                          className="h-9 bg-amber-500/10 text-amber-400 border border-amber-500/30 hover:bg-amber-500 hover:text-white text-[10px] font-black uppercase rounded-xl px-3 transition-colors cursor-pointer"
+                                          onClick={() => setDeactivatingUser(u)}
+                                        >
+                                           Deactivate
+                                        </Button>
+                                      )}
                                       <Button 
                                         size="icon" 
                                         variant="ghost" 
-                                        className={`size-10 rounded-xl transition-all ${u.status === 'active' ? 'text-red-500 hover:bg-red-500/10' : 'text-green-500 hover:bg-green-500/10'}`}
+                                        className={`size-9 rounded-xl transition-all ${u.status === 'active' ? 'text-red-500 hover:bg-red-500/10' : 'text-green-500 hover:bg-green-500/10'}`}
                                         onClick={() => handleToggleUserStatus(u)}
+                                        title={u.status === 'active' ? 'Suspend Account' : 'Unsuspend Account'}
                                       >
-                                         <ShieldAlert size={20} />
+                                         <ShieldAlert size={18} />
                                       </Button>
                                    </div>
                                 </td>
@@ -1248,6 +1718,64 @@ export default function AdminDashboard() {
           {activeSection === 'settings' && (
             <div className="space-y-10 pb-10">
                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                  {/* Account Activation Fee Card */}
+                  <Card className="bg-card border-border rounded-3xl overflow-hidden shadow-md border-t-4 border-t-amber-500 border">
+                    <CardHeader className="p-8 border-b border-border bg-white/5">
+                      <CardTitle className="text-lg font-black uppercase italic tracking-tighter flex items-center gap-3 text-white">
+                        <ShieldCheck className="size-5 text-amber-400" /> Account Activation
+                      </CardTitle>
+                      <CardDescription className="text-white/40 text-xs font-medium">
+                        Configure the mandatory account activation fee and client currency requirements
+                      </CardDescription>
+                    </CardHeader>
+                    <CardContent className="p-8 space-y-6">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                        <div className="space-y-3">
+                          <Label className="text-[10px] font-black uppercase text-slate-400 tracking-widest">
+                            Currency Symbol / Code
+                          </Label>
+                          <Input
+                            type="text"
+                            placeholder="$"
+                            className="bg-background border-border h-14 font-black italic text-lg px-4 rounded-xl text-white"
+                            value={activationConfig.currency || '$'}
+                            onChange={(e) => setActivationConfig({ ...activationConfig, currency: e.target.value })}
+                          />
+                        </div>
+                        <div className="space-y-3">
+                          <Label className="text-[10px] font-black uppercase text-slate-400 tracking-widest">
+                            Activation Fee ($)
+                          </Label>
+                          <Input
+                            type="number"
+                            placeholder="50"
+                            className="bg-background border-border h-14 font-black italic text-lg px-4 rounded-xl text-white"
+                            value={activationConfig.amount ?? 50}
+                            onChange={(e) => setActivationConfig({ ...activationConfig, amount: parseFloat(e.target.value) || 0 })}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-xs text-amber-300 space-y-1">
+                        <p className="font-bold flex items-center gap-1.5">
+                          <ShieldAlert className="size-4 shrink-0" /> Policy Configuration
+                        </p>
+                        <p className="text-[11px] text-white/70">
+                          Inactive accounts will be prompted for this exact fee on their dashboard and deposit activation page. Updating this fee only applies to new activation requests.
+                        </p>
+                      </div>
+
+                      <Button
+                        type="button"
+                        disabled={isSavingActivationConfig}
+                        onClick={() => handleSaveActivationConfig()}
+                        className="h-12 px-6 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-black uppercase text-[10px] tracking-widest transition-all cursor-pointer shadow-lg shadow-amber-500/20"
+                      >
+                        {isSavingActivationConfig ? 'Saving...' : 'Save Changes'}
+                      </Button>
+                    </CardContent>
+                  </Card>
+
                   <Card className="bg-card border-border rounded-3xl overflow-hidden shadow-md border-t-4 border-t-primary border">
                       <CardHeader className="p-8 border-b border-border bg-white/5">
                          <CardTitle className="text-lg font-black uppercase italic tracking-tighter flex items-center gap-3 text-white">
@@ -1790,6 +2318,128 @@ export default function AdminDashboard() {
            </form>
         </DialogContent>
       </Dialog>
+
+      {/* Approve Activation Confirmation Dialog */}
+      <Dialog open={Boolean(approvingActivation)} onOpenChange={(open) => !open && setApprovingActivation(null)}>
+        <DialogContent className="bg-card border-border text-white sm:max-w-md rounded-3xl p-6 sm:p-8">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-black italic uppercase tracking-tight text-white flex items-center gap-2">
+              <ShieldCheck className="size-6 text-green-400" />
+              Approve account activation?
+            </DialogTitle>
+            <DialogDescription className="text-white/60 text-xs mt-2 leading-relaxed">
+              Approving this request will activate this user's account and instantly grant them full access to the Goldbrick dashboard, investments, and returns.
+            </DialogDescription>
+          </DialogHeader>
+          {approvingActivation && (
+            <div className="bg-white/5 border border-white/10 rounded-2xl p-4 my-4 space-y-2 text-xs">
+              <div className="flex justify-between">
+                <span className="text-white/40 uppercase font-black tracking-widest text-[10px]">Client</span>
+                <span className="font-bold text-white">{approvingActivation.userName}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-white/40 uppercase font-black tracking-widest text-[10px]">Email</span>
+                <span className="font-mono text-white/80">{approvingActivation.userEmail}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-white/40 uppercase font-black tracking-widest text-[10px]">Activation Amount</span>
+                <span className="font-black text-green-400 font-mono text-sm">
+                  {approvingActivation.currency || '$'}{Number(approvingActivation.amount).toLocaleString()}
+                </span>
+              </div>
+            </div>
+          )}
+          <DialogFooter className="gap-2 sm:gap-0 mt-2">
+            <Button variant="ghost" onClick={() => setApprovingActivation(null)} className="rounded-xl text-white/60 hover:text-white cursor-pointer">
+              Cancel
+            </Button>
+            <Button onClick={handleConfirmApproveActivation} className="bg-green-600 hover:bg-green-500 text-white font-black uppercase text-xs tracking-wider rounded-xl cursor-pointer">
+              Approve Activation
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Reject Activation Request Dialog */}
+      <Dialog open={Boolean(rejectingActivation)} onOpenChange={(open) => !open && setRejectingActivation(null)}>
+        <DialogContent className="bg-card border-border text-white sm:max-w-md rounded-3xl p-6 sm:p-8">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-black italic uppercase tracking-tight text-white flex items-center gap-2">
+              <ShieldAlert className="size-6 text-red-400" />
+              Reject Activation Request
+            </DialogTitle>
+            <DialogDescription className="text-white/60 text-xs mt-2 leading-relaxed">
+              The user's account will remain inactive. Provide an audit note explaining the rejection so the user can review and resubmit valid proof.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2 my-4">
+            <Label className="text-[10px] font-black uppercase tracking-widest text-white/60">Audit Note / Explanation</Label>
+            <textarea
+              value={rejectionReasonInput}
+              onChange={(e) => setRejectionReasonInput(e.target.value)}
+              placeholder="Your activation payment could not be verified. Please review the payment details and submit valid proof."
+              className="w-full bg-background border border-border p-3 rounded-xl text-xs text-white focus:outline-none focus:ring-1 focus:ring-primary/40 h-24 font-medium"
+            />
+          </div>
+          <DialogFooter className="gap-2 sm:gap-0 mt-2">
+            <Button variant="ghost" onClick={() => setRejectingActivation(null)} className="rounded-xl text-white/60 hover:text-white cursor-pointer">
+              Cancel
+            </Button>
+            <Button onClick={handleConfirmRejectActivation} className="bg-red-600 hover:bg-red-500 text-white font-black uppercase text-xs tracking-wider rounded-xl cursor-pointer">
+              Reject Request
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Deactivate User Confirmation Dialog */}
+      <Dialog open={Boolean(deactivatingUser)} onOpenChange={(open) => !open && setDeactivatingUser(null)}>
+        <DialogContent className="bg-card border-border text-white sm:max-w-md rounded-3xl p-6 sm:p-8">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-black italic uppercase tracking-tight text-white flex items-center gap-2">
+              <ShieldAlert className="size-6 text-amber-400" />
+              Deactivate account?
+            </DialogTitle>
+            <DialogDescription className="text-white/60 text-xs mt-2 leading-relaxed">
+              This will change the user's account status to inactive. Existing account data (profile, history, deposits, investments, and activation history) will remain safe.
+            </DialogDescription>
+          </DialogHeader>
+          {deactivatingUser && (
+            <div className="bg-white/5 border border-white/10 rounded-2xl p-4 my-4 space-y-1.5 text-xs">
+              <div className="flex justify-between">
+                <span className="text-white/40 uppercase font-black tracking-widest text-[10px]">Client</span>
+                <span className="font-bold text-white">{deactivatingUser.displayName || 'User'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-white/40 uppercase font-black tracking-widest text-[10px]">Email</span>
+                <span className="font-mono text-white/80">{deactivatingUser.email}</span>
+              </div>
+            </div>
+          )}
+          <DialogFooter className="gap-2 sm:gap-0 mt-2">
+            <Button variant="ghost" onClick={() => setDeactivatingUser(null)} className="rounded-xl text-white/60 hover:text-white cursor-pointer">
+              Cancel
+            </Button>
+            <Button onClick={handleConfirmDeactivateUser} className="bg-amber-600 hover:bg-amber-500 text-white font-black uppercase text-xs tracking-wider rounded-xl cursor-pointer">
+              Deactivate Account
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Activation Payment Proof Lightbox Modal */}
+      {selectedActivationProof && (
+        <ProofLightboxModal
+          isOpen={Boolean(selectedActivationProof)}
+          onClose={() => setSelectedActivationProof(null)}
+          imageUrl={selectedActivationProof.paymentProof}
+          title="Account Activation Payment Proof"
+          userName={selectedActivationProof.userName}
+          amount={selectedActivationProof.amount}
+          currency={selectedActivationProof.currency}
+          date={selectedActivationProof.submittedAt?.toDate ? format(selectedActivationProof.submittedAt.toDate(), 'MMM dd, yyyy HH:mm') : ''}
+        />
+      )}
     </div>
   );
 }
@@ -1806,7 +2456,7 @@ function AdminChatManager() {
     const unsub = onSnapshot(query(collection(db, 'chats'), orderBy('lastActive', 'desc')), (snap) => {
       setChats(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
       setLoading(false);
-    }, (e) => console.error('Chats list error:', e));
+    }, (e) => console.warn('Chats list notice:', e.message || e));
     return () => unsub();
   }, []);
 
@@ -1814,7 +2464,7 @@ function AdminChatManager() {
     if (!selectedChat) return;
     const unsub = onSnapshot(query(collection(db, 'chats', selectedChat.id, 'messages'), orderBy('createdAt', 'asc')), (snap) => {
       setMessages(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    }, (e) => console.error('Chat messages error:', e));
+    }, (e) => console.warn('Chat messages notice:', e.message || e));
     return () => unsub();
   }, [selectedChat]);
 

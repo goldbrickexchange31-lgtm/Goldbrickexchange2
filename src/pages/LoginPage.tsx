@@ -185,14 +185,6 @@ export default function LoginPage() {
                 <Label className="text-[10px] font-black uppercase text-white/40 tracking-widest">
                   Password
                 </Label>
-                <button
-                  type="button"
-                  onClick={handleForgotPasswordOpen}
-                  className="text-[10px] font-black uppercase text-primary hover:text-primary/80 hover:underline tracking-widest transition-all cursor-pointer flex items-center gap-1"
-                >
-                  <KeyRound className="w-3 h-3 inline-block" />
-                  Forgot Password?
-                </button>
               </div>
               <div className="relative">
                 <Input
@@ -229,17 +221,6 @@ export default function LoginPage() {
               )}
             </Button>
           </form>
-
-          {/* Quick link for forgotten password as secondary recovery access */}
-          <div className="mt-6 pt-5 border-t border-border/50 text-center">
-            <button
-              type="button"
-              onClick={handleForgotPasswordOpen}
-              className="text-[11px] font-bold text-white/50 hover:text-primary transition-colors cursor-pointer"
-            >
-              Having trouble signing in? <span className="text-primary underline">Reset your password</span>
-            </button>
-          </div>
 
           <div className="mt-6 text-center text-[10px] font-black uppercase tracking-widest">
             <span className="text-white/40">New to GoldBrick? </span>

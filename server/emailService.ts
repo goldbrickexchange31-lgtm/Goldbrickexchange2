@@ -1,5 +1,7 @@
 import nodemailer from 'nodemailer';
 import type admin from 'firebase-admin';
+import fs from 'fs';
+import path from 'path';
 
 export interface SmtpConfig {
   host?: string;
@@ -11,11 +13,46 @@ export interface SmtpConfig {
   fromEmail?: string;
 }
 
+// In-memory cache + local persistent storage fallback
+let cachedSmtpConfig: SmtpConfig | null = null;
+const SMTP_CONFIG_FILE = path.join(process.cwd(), '.smtp_config.json');
+
+export function saveSmtpConfigLocally(config: SmtpConfig): void {
+  cachedSmtpConfig = { ...config };
+  try {
+    fs.writeFileSync(SMTP_CONFIG_FILE, JSON.stringify(config, null, 2), 'utf-8');
+  } catch (e: any) {
+    console.warn('[EMAIL] Could not write SMTP config to local file:', e?.message || e);
+  }
+}
+
+export function loadSmtpConfigLocally(): SmtpConfig | null {
+  if (cachedSmtpConfig && cachedSmtpConfig.user) return cachedSmtpConfig;
+  try {
+    if (fs.existsSync(SMTP_CONFIG_FILE)) {
+      const data = JSON.parse(fs.readFileSync(SMTP_CONFIG_FILE, 'utf-8'));
+      if (data && data.host && data.user) {
+        cachedSmtpConfig = data;
+        return cachedSmtpConfig;
+      }
+    }
+  } catch (e: any) {
+    console.warn('[EMAIL] Could not read SMTP config from local file:', e?.message || e);
+  }
+  return null;
+}
+
 /**
- * Get active SMTP configuration from Firestore or environment variables
+ * Get active SMTP configuration from local storage, Firestore, or environment variables
  */
 export async function getSmtpConfig(db?: admin.firestore.Firestore | null): Promise<SmtpConfig | null> {
-  // Check environment variables first
+  // 1. Check local in-memory or persisted configuration first
+  const localConfig = loadSmtpConfigLocally();
+  if (localConfig && localConfig.user && localConfig.pass) {
+    return localConfig;
+  }
+
+  // 2. Check environment variables
   if (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS) {
     return {
       host: process.env.SMTP_HOST,
@@ -28,14 +65,14 @@ export async function getSmtpConfig(db?: admin.firestore.Firestore | null): Prom
     };
   }
 
-  // Check Firestore settings if db is available
+  // 3. Check Firestore settings if db is available
   if (db) {
     try {
       const snap = await db.collection('settings').doc('smtp').get();
       if (snap.exists) {
         const data = snap.data();
         if (data && data.host && data.user && data.pass) {
-          return {
+          const config: SmtpConfig = {
             host: data.host,
             port: parseInt(data.port || '587', 10),
             secure: data.secure === true || String(data.port) === '465',
@@ -44,14 +81,16 @@ export async function getSmtpConfig(db?: admin.firestore.Firestore | null): Prom
             fromName: data.fromName || 'GoldBrick Security',
             fromEmail: data.fromEmail || data.user,
           };
+          saveSmtpConfigLocally(config);
+          return config;
         }
       }
-    } catch (err) {
-      console.warn('[EMAIL] Could not read SMTP settings from Firestore:', err);
+    } catch (err: any) {
+      console.warn('[EMAIL] Firestore read note for SMTP settings:', err?.message || err);
     }
   }
 
-  return null;
+  return localConfig || null;
 }
 
 /**

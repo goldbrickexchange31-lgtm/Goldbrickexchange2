@@ -17,9 +17,29 @@
         "referredBy": { "type": "string" },
         "role": { "type": "string", "enum": ["user", "admin"] },
         "status": { "type": "string", "enum": ["active", "suspended"] },
+        "accountStatus": { "type": "string", "enum": ["active", "inactive"] },
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["uid", "email", "balance", "role", "status", "createdAt"]
+    },
+    "ActivationRequest": {
+      "title": "Activation Request",
+      "description": "User account activation fee submission and verification",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "userEmail": { "type": "string" },
+        "amount": { "type": "number" },
+        "currency": { "type": "string" },
+        "paymentProof": { "type": "string" },
+        "status": { "type": "string", "enum": ["pending", "approved", "rejected"] },
+        "submittedAt": { "type": "string", "format": "date-time" },
+        "reviewedAt": { "type": "string", "format": "date-time" },
+        "reviewedBy": { "type": "string" },
+        "rejectionReason": { "type": "string" }
+      },
+      "required": ["userId", "amount", "paymentProof", "status"]
     },
     "Investment": {
       "title": "Investment",
@@ -157,6 +177,14 @@
     "/transactions/{transactionId}": {
       "schema": "Transaction",
       "description": "Deposit/Withdrawal history"
+    },
+    "/activationRequests/{requestId}": {
+      "schema": "ActivationRequest",
+      "description": "Account activation requests and payment audits"
+    },
+    "/settings/{settingId}": {
+      "schema": "object",
+      "description": "Platform settings including account activation and smtp"
     },
     "/plans/{planId}": {
       "schema": "InvestmentPlan",
