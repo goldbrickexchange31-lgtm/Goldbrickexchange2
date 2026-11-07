@@ -9,22 +9,28 @@ export const Logo: React.FC<{ className?: string }> = ({ className = "h-12" }) =
         xmlns="http://www.w3.org/2000/svg"
       >
         <defs>
-          <linearGradient id="blue-premium" x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stopColor="#0057ff" />
-            <stop offset="100%" stopColor="#003dcb" />
+          <linearGradient id="gold-royal" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stopColor="#FBBF24" />
+            <stop offset="50%" stopColor="#F59E0B" />
+            <stop offset="100%" stopColor="#B45309" />
+          </linearGradient>
+          <linearGradient id="gold-border" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stopColor="#FDE68A" />
+            <stop offset="100%" stopColor="#D97706" />
           </linearGradient>
         </defs>
 
         <g transform="translate(5, 5) scale(0.9)">
-          <rect x="0" y="0" width="100" height="100" rx="22" fill="url(#blue-premium)" />
+          <rect x="0" y="0" width="100" height="100" rx="22" fill="url(#gold-royal)" />
+          <rect x="2" y="2" width="96" height="96" rx="20" fill="none" stroke="url(#gold-border)" strokeWidth="2" opacity="0.4" />
           <path
             d="M50 20 L76 35 V65 L50 80 L24 65 V35 Z"
-            fill="white"
-            opacity="0.1"
+            fill="#0F121B"
+            opacity="0.35"
           />
           <path
             d="M65 35 C65 35 58 30 50 30 C40 30 33 37 33 50 C33 63 40 70 50 70 C58 70 65 65 65 65 V55 H50"
-            stroke="white"
+            stroke="#0A0B10"
             strokeWidth="8"
             strokeLinecap="round"
             strokeLinejoin="round"

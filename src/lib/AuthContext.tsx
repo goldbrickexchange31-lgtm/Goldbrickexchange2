@@ -60,7 +60,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
               referralCode: myReferralCode,
               role: adminEmails.includes(u.email || '') ? 'admin' : 'user',
               status: 'active',
-              accountStatus: adminEmails.includes(u.email || '') ? 'active' : 'inactive',
+              accountStatus: 'active',
               createdAt: serverTimestamp()
             });
           }

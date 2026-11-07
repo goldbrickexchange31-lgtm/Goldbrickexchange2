@@ -204,6 +204,11 @@ export interface VisitorPayload {
   os?: string;
   screen?: string;
   isPageChange?: boolean;
+  userId?: string | null;
+  userName?: string | null;
+  userEmail?: string | null;
+  accountStatus?: string | null;
+  userRole?: string | null;
 }
 
 // In-Memory Active Visitor and Alert Cache (mirrors Firestore in real time)
@@ -276,6 +281,11 @@ export async function processVisitorTracking(
     const device = (payload.device || 'Desktop').slice(0, 50);
     const browser = (payload.browser || 'Unknown Browser').slice(0, 50);
     const os = (payload.os || 'Unknown OS').slice(0, 50);
+    const userId = payload.userId ? String(payload.userId).slice(0, 100) : null;
+    const userName = payload.userName ? String(payload.userName).slice(0, 100) : null;
+    const userEmail = payload.userEmail ? String(payload.userEmail).slice(0, 100) : null;
+    const accountStatus = payload.accountStatus ? String(payload.accountStatus).slice(0, 50) : null;
+    const userRole = payload.userRole ? String(payload.userRole).slice(0, 50) : null;
 
     if (!visitorId || !sessionId) {
       return res.status(400).json({ error: 'visitorId and sessionId are required' });
@@ -318,7 +328,7 @@ export async function processVisitorTracking(
       isNewVisitor = true;
       isNewSession = true;
 
-      const visitorData = {
+      const visitorData: Record<string, any> = {
         visitorId,
         sessionId,
         ipAddress: geo.ip,
@@ -345,6 +355,12 @@ export async function processVisitorTracking(
         history: [historyItem]
       };
 
+      if (userId) visitorData.userId = userId;
+      if (userName) visitorData.userName = userName;
+      if (userEmail) visitorData.userEmail = userEmail;
+      if (accountStatus) visitorData.accountStatus = accountStatus;
+      if (userRole) visitorData.userRole = userRole;
+
       memoryVisitors.set(visitorId, visitorData);
 
       if (visitorDocRef && canAttemptServerFirestore()) {
@@ -356,7 +372,7 @@ export async function processVisitorTracking(
       }
 
       // Create real-time admin alert notification in memory and Firestore
-      const notifData = {
+      const notifData: Record<string, any> = {
         notificationId: `notif_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
         visitorId,
         sessionId,
@@ -373,6 +389,13 @@ export async function processVisitorTracking(
         read: false,
         createdAt: isoNow
       };
+
+      if (userName || userEmail) {
+        notifData.userName = userName || userEmail;
+        notifData.userEmail = userEmail;
+        notifData.userId = userId;
+      }
+
       memoryNotifications.unshift(notifData);
 
       if (db && canAttemptServerFirestore()) {
@@ -389,8 +412,9 @@ export async function processVisitorTracking(
 
       // Trigger Web Push Notification to Admins if tokens available
       if (canAttemptServerFirestore()) {
+        const userTitlePart = userName ? ` [${userName}]` : '';
         dispatchAdminPushNotification(adminInstance, db, {
-          title: `🟢 NEW WEBSITE VISITOR`,
+          title: `🟢 NEW VISITOR${userTitlePart}`,
           body: `${geo.flagEmoji} ${geo.country} — ${geo.city} | ${device} • ${browser} on ${currentPage}`,
           link: '/admin',
           tag: 'new-visitor'
@@ -422,6 +446,13 @@ export async function processVisitorTracking(
         pageViewsCount: adminInstance?.firestore?.FieldValue?.increment ? adminInstance.firestore.FieldValue.increment(1) : (existingData.pageViewsCount || 1) + 1
       };
 
+      // Update user account details if now authenticated
+      if (userId) updates.userId = userId;
+      if (userName) updates.userName = userName;
+      if (userEmail) updates.userEmail = userEmail;
+      if (accountStatus) updates.accountStatus = accountStatus;
+      if (userRole) updates.userRole = userRole;
+
       // If IP or location changed, update them
       if (existingData.ipAddress !== geo.ip && geo.country !== 'Location unavailable') {
         updates.ipAddress = geo.ip;
@@ -442,7 +473,7 @@ export async function processVisitorTracking(
 
         // Optionally send a returning visitor alert if it has been a while
         try {
-          const returningNotif = {
+          const returningNotif: Record<string, any> = {
             notificationId: `notif_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
             visitorId,
             sessionId,
@@ -459,6 +490,13 @@ export async function processVisitorTracking(
             read: false,
             createdAt: isoNow
           };
+
+          if (userName || userEmail) {
+            returningNotif.userName = userName || userEmail;
+            returningNotif.userEmail = userEmail;
+            returningNotif.userId = userId;
+          }
+
           memoryNotifications.unshift(returningNotif);
 
           if (db && canAttemptServerFirestore()) {
@@ -497,8 +535,14 @@ export async function processVisitorTracking(
       sessionId,
       isNewVisitor,
       isNewSession,
+      ip: geo.ip,
       country: geo.country,
+      countryCode: geo.countryCode,
+      region: geo.region,
       city: geo.city,
+      latitude: geo.latitude,
+      longitude: geo.longitude,
+      isp: geo.isp,
       flagEmoji: geo.flagEmoji,
       isOnline: true
     });
@@ -534,6 +578,10 @@ export async function processVisitorHeartbeat(
     const visitorId = (body?.visitorId || '').trim();
     const isLeaving = Boolean(body?.isLeaving);
     const currentPage = body?.currentPage ? String(body.currentPage).slice(0, 500) : undefined;
+    const userId = body?.userId ? String(body.userId).slice(0, 100) : undefined;
+    const userName = body?.userName ? String(body.userName).slice(0, 100) : undefined;
+    const userEmail = body?.userEmail ? String(body.userEmail).slice(0, 100) : undefined;
+    const accountStatus = body?.accountStatus ? String(body.accountStatus).slice(0, 50) : undefined;
 
     if (!visitorId) {
       return res.status(400).json({ error: 'visitorId required' });
@@ -545,6 +593,10 @@ export async function processVisitorHeartbeat(
       mem.lastSeen = new Date().toISOString();
       mem.isOnline = !isLeaving;
       if (currentPage) mem.currentPage = currentPage;
+      if (userId) mem.userId = userId;
+      if (userName) mem.userName = userName;
+      if (userEmail) mem.userEmail = userEmail;
+      if (accountStatus) mem.accountStatus = accountStatus;
       memoryVisitors.set(visitorId, mem);
     }
 
@@ -556,9 +608,11 @@ export async function processVisitorHeartbeat(
           isOnline: !isLeaving
         };
 
-        if (currentPage) {
-          updates.currentPage = currentPage;
-        }
+        if (currentPage) updates.currentPage = currentPage;
+        if (userId) updates.userId = userId;
+        if (userName) updates.userName = userName;
+        if (userEmail) updates.userEmail = userEmail;
+        if (accountStatus) updates.accountStatus = accountStatus;
 
         await visitorRef.update(updates).catch(e => {
           handleServerFirestoreNotice(`heartbeat update for ${visitorId}`, e);

@@ -60,6 +60,11 @@ export interface VisitorRecord {
   flagEmoji: string;
   locationNotice?: string;
   history?: Array<{ page: string; title?: string; timestamp: string }>;
+  userId?: string | null;
+  userName?: string | null;
+  userEmail?: string | null;
+  accountStatus?: string | null;
+  userRole?: string | null;
 }
 
 interface AdminLiveVisitorsProps {
@@ -74,6 +79,7 @@ export default function AdminLiveVisitors({ visitors, loading = false, onRefresh
   const [statusFilter, setStatusFilter] = useState<'all' | 'online' | 'offline'>('all');
   const [deviceFilter, setDeviceFilter] = useState<string>('all');
   const [countryFilter, setCountryFilter] = useState<string>('all');
+  const [accountFilter, setAccountFilter] = useState<'all' | 'authenticated' | 'guests'>('all');
   
   const [selectedVisitor, setSelectedVisitor] = useState<VisitorRecord | null>(null);
   const [copiedIp, setCopiedIp] = useState<string | null>(null);
@@ -113,6 +119,7 @@ export default function AdminLiveVisitors({ visitors, loading = false, onRefresh
     let onlineCount = 0;
     let todayCount = 0;
     let lastHourCount = 0;
+    let loggedInCount = 0;
     const countriesSet = new Set<string>();
 
     visitors.forEach(v => {
@@ -131,12 +138,16 @@ export default function AdminLiveVisitors({ visitors, loading = false, onRefresh
       if (v.country && v.country !== 'Location unavailable') {
         countriesSet.add(v.country);
       }
+      if (v.userName || v.userEmail || v.userId) {
+        loggedInCount++;
+      }
     });
 
     return {
       online: onlineCount,
       today: todayCount,
       lastHour: lastHourCount,
+      loggedIn: loggedInCount,
       totalCountries: countriesSet.size,
       totalRecords: visitors.length
     };
@@ -150,17 +161,22 @@ export default function AdminLiveVisitors({ visitors, loading = false, onRefresh
     return visitors.filter(v => {
       const lastSeenDate = toDate(v.lastSeen);
       const isOnline = isVisitorOnline(v);
+      const hasAccount = Boolean(v.userName || v.userEmail || v.userId);
 
       // 1. Status Filter
       if (statusFilter === 'online' && !isOnline) return false;
       if (statusFilter === 'offline' && isOnline) return false;
 
-      // 2. Date Filter
+      // 2. Account Filter
+      if (accountFilter === 'authenticated' && !hasAccount) return false;
+      if (accountFilter === 'guests' && hasAccount) return false;
+
+      // 3. Date Filter
       if (dateFilter === 'today' && !isToday(lastSeenDate)) return false;
       if (dateFilter === 'yesterday' && !isYesterday(lastSeenDate)) return false;
       if (dateFilter === '7days' && lastSeenDate < sevenDaysAgo) return false;
 
-      // 3. Device Filter
+      // 4. Device Filter
       if (deviceFilter !== 'all') {
         if (deviceFilter === 'mobile' && !['Android', 'iPhone', 'Mobile Device'].includes(v.device)) {
           return false;
@@ -170,12 +186,12 @@ export default function AdminLiveVisitors({ visitors, loading = false, onRefresh
         }
       }
 
-      // 4. Country Filter
+      // 5. Country Filter
       if (countryFilter !== 'all' && v.country !== countryFilter) {
         return false;
       }
 
-      // 5. Search Term (IP, City, Country, VisitorID, SessionID, ISP)
+      // 6. Search Term (IP, City, Country, Username, Email, VisitorID, SessionID, ISP)
       if (term) {
         const matchesIp = v.ipAddress?.toLowerCase().includes(term);
         const matchesCity = v.city?.toLowerCase().includes(term);
@@ -184,15 +200,18 @@ export default function AdminLiveVisitors({ visitors, loading = false, onRefresh
         const matchesVid = v.visitorId?.toLowerCase().includes(term);
         const matchesSid = v.sessionId?.toLowerCase().includes(term);
         const matchesPage = v.currentPage?.toLowerCase().includes(term);
+        const matchesUser = v.userName?.toLowerCase().includes(term);
+        const matchesEmail = v.userEmail?.toLowerCase().includes(term);
+        const matchesUid = v.userId?.toLowerCase().includes(term);
 
-        if (!matchesIp && !matchesCity && !matchesCountry && !matchesIsp && !matchesVid && !matchesSid && !matchesPage) {
+        if (!matchesIp && !matchesCity && !matchesCountry && !matchesIsp && !matchesVid && !matchesSid && !matchesPage && !matchesUser && !matchesEmail && !matchesUid) {
           return false;
         }
       }
 
       return true;
     });
-  }, [visitors, searchTerm, dateFilter, statusFilter, deviceFilter, countryFilter]);
+  }, [visitors, searchTerm, dateFilter, statusFilter, deviceFilter, countryFilter, accountFilter]);
 
   const handleCopy = (text: string, label: string) => {
     navigator.clipboard.writeText(text);
@@ -334,7 +353,7 @@ export default function AdminLiveVisitors({ visitors, loading = false, onRefresh
             <div className="relative flex-1">
               <Search className="absolute left-4 top-1/2 -translate-y-1/2 size-4 text-white/40" />
               <Input
-                placeholder="Search by IP, City, Country, Page, ISP, or Visitor ID..."
+                placeholder="Search by Username, Email, IP, City, Country, or Visitor ID..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 className="bg-background border-border h-12 pl-11 rounded-2xl text-sm text-white placeholder:text-white/40"
@@ -349,7 +368,7 @@ export default function AdminLiveVisitors({ visitors, loading = false, onRefresh
               )}
             </div>
 
-            {/* Status Filter Buttons */}
+            {/* Account & Status Filter Buttons */}
             <div className="flex items-center gap-1 bg-background p-1 rounded-2xl border border-border shrink-0 overflow-x-auto">
               <button
                 onClick={() => setStatusFilter('all')}
@@ -362,19 +381,34 @@ export default function AdminLiveVisitors({ visitors, loading = false, onRefresh
                 className={`px-3 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all whitespace-nowrap flex items-center gap-1.5 ${statusFilter === 'online' ? 'bg-green-500 text-white shadow-sm' : 'text-white/40 hover:text-green-400'}`}
               >
                 <span className="size-1.5 rounded-full bg-green-400 animate-pulse" />
-                Online ({stats.online})
+                Live ({stats.online})
               </button>
               <button
-                onClick={() => setStatusFilter('offline')}
-                className={`px-3 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all whitespace-nowrap ${statusFilter === 'offline' ? 'bg-white/20 text-white shadow-sm' : 'text-white/40 hover:text-white'}`}
+                onClick={() => setAccountFilter(accountFilter === 'authenticated' ? 'all' : 'authenticated')}
+                className={`px-3 py-2 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all whitespace-nowrap flex items-center gap-1.5 ${accountFilter === 'authenticated' ? 'bg-amber-500 text-slate-950 font-black shadow-sm' : 'text-white/40 hover:text-amber-400'}`}
               >
-                Offline ({visitors.length - stats.online})
+                <UserCheck size={12} />
+                Accounts ({stats.loggedIn})
               </button>
             </div>
           </div>
 
           {/* Secondary Dropdown Filter Strip */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2 border-t border-border/60">
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 pt-2 border-t border-border/60">
+            {/* Account Type filter */}
+            <div className="flex items-center gap-2 bg-background border border-border px-3 py-2 rounded-xl">
+              <UserCheck size={14} className="text-white/40 shrink-0" />
+              <select
+                value={accountFilter}
+                onChange={(e) => setAccountFilter(e.target.value as any)}
+                className="bg-transparent text-xs font-bold text-white w-full outline-none cursor-pointer uppercase tracking-wider"
+              >
+                <option value="all" className="bg-card text-white">All Traffic (Accounts & Guests)</option>
+                <option value="authenticated" className="bg-card text-white">👤 Logged-in Accounts Only</option>
+                <option value="guests" className="bg-card text-white">🌐 Anonymous Visitors Only</option>
+              </select>
+            </div>
+
             {/* Date filter */}
             <div className="flex items-center gap-2 bg-background border border-border px-3 py-2 rounded-xl">
               <Calendar size={14} className="text-white/40 shrink-0" />
@@ -499,9 +533,26 @@ export default function AdminLiveVisitors({ visitors, loading = false, onRefresh
                         </div>
                       </td>
 
-                      {/* Location & IP */}
+                      {/* Location & IP & Account */}
                       <td className="p-6">
-                        <div className="space-y-1">
+                        <div className="space-y-1.5">
+                          {/* Logged in Account Badge */}
+                          {(v.userName || v.userEmail) ? (
+                            <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs font-bold">
+                              <UserCheck size={12} className="shrink-0 text-amber-400" />
+                              <span className="font-mono">@{v.userName || v.userEmail?.split('@')[0]}</span>
+                              {v.accountStatus && (
+                                <span className={`text-[9px] font-black uppercase px-1.5 py-0.2 rounded ${v.accountStatus === 'active' ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
+                                  {v.accountStatus}
+                                </span>
+                              )}
+                            </div>
+                          ) : (
+                            <div className="inline-flex items-center gap-1 text-[10px] text-white/40 uppercase font-mono tracking-wider">
+                              <span>Guest Visitor</span>
+                            </div>
+                          )}
+
                           <div className="flex items-center gap-2">
                             <span className="text-xl" role="img" aria-label={v.country}>
                               {v.flagEmoji || '🌐'}
@@ -535,6 +586,11 @@ export default function AdminLiveVisitors({ visitors, loading = false, onRefresh
                             >
                               {copiedIp === v.ipAddress ? <Check size={12} className="text-green-400" /> : <Copy size={12} />}
                             </button>
+                            {v.userEmail && (
+                              <span className="text-[10px] text-white/40 font-mono truncate max-w-[140px]" title={v.userEmail}>
+                                ({v.userEmail})
+                              </span>
+                            )}
                           </div>
                         </div>
                       </td>
@@ -680,6 +736,36 @@ export default function AdminLiveVisitors({ visitors, loading = false, onRefresh
                     </p>
                   </div>
                 </div>
+
+                {/* User Account Link Info (if visitor is logged in) */}
+                {selectedVisitor.userName || selectedVisitor.userEmail || selectedVisitor.userId ? (
+                  <div className="p-5 rounded-2xl bg-amber-500/10 border border-amber-500/30 space-y-2">
+                    <div className="text-[10px] font-black uppercase text-amber-400 tracking-widest flex items-center justify-between">
+                      <span className="flex items-center gap-1.5">
+                        <UserCheck size={14} /> Authenticated User Account
+                      </span>
+                      {selectedVisitor.accountStatus && (
+                        <Badge className={`${selectedVisitor.accountStatus === 'active' ? 'bg-green-500/20 text-green-400 border-green-500/30' : 'bg-red-500/20 text-red-400 border-red-500/30'} uppercase text-[9px] font-mono`}>
+                          Account: {selectedVisitor.accountStatus}
+                        </Badge>
+                      )}
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">
+                      <div>
+                        <span className="text-[10px] text-white/40 uppercase font-mono">Username</span>
+                        <p className="text-sm font-bold text-white font-mono">@{selectedVisitor.userName || 'Unknown'}</p>
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-white/40 uppercase font-mono">Email Address</span>
+                        <p className="text-sm font-bold text-white font-mono truncate">{selectedVisitor.userEmail || 'No email'}</p>
+                      </div>
+                      <div>
+                        <span className="text-[10px] text-white/40 uppercase font-mono">User ID</span>
+                        <p className="text-xs font-mono text-white/70 truncate">{selectedVisitor.userId || 'N/A'}</p>
+                      </div>
+                    </div>
+                  </div>
+                ) : null}
 
                 {/* Grid of Telemetry Details */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

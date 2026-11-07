@@ -22,7 +22,7 @@ import ReferralsPage from './pages/ReferralsPage';
 import SupportPage from './pages/SupportPage';
 import TermsPage from './pages/TermsPage';
 import VisitorTracker from './components/VisitorTracker';
-import PrivacyBanner from './components/PrivacyBanner';
+import { LiveActivityNotification } from './components/LiveActivityNotification';
 
 const ProtectedRoute = ({ children, adminOnly = false }: { children: React.ReactNode, adminOnly?: boolean }) => {
   const { user, userData, loading } = useAuth();
@@ -71,7 +71,7 @@ export default function App() {
         <BrowserRouter>
           <ScrollToTop />
           <VisitorTracker />
-          <PrivacyBanner />
+          <LiveActivityNotification />
           <AppRoutes />
           <Toaster position="top-right" expand={true} richColors />
         </BrowserRouter>

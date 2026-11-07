@@ -54,7 +54,9 @@ import {
   Mail,
   KeyRound,
   Server,
-  RefreshCw
+  RefreshCw,
+  Cpu,
+  Bot
 } from 'lucide-react';
 import { useAuth } from '../lib/AuthContext';
 import { db, auth } from '../lib/firebase';
@@ -476,11 +478,13 @@ export default function AdminDashboard() {
         if (Array.isArray(data.visitors) && data.visitors.length > 0) {
           setVisitors(prev => {
             const map = new Map<string, VisitorRecord>();
-            data.visitors.forEach((v: VisitorRecord) => map.set(v.id || v.visitorId, v));
-            prev.forEach(v => {
-              if (!map.has(v.id || v.visitorId)) {
-                map.set(v.id || v.visitorId, v);
-              }
+            // Keep existing Firestore data as primary source of truth
+            prev.forEach(v => map.set(v.id || v.visitorId, v));
+            // Layer in fresh server API visitor telemetry
+            data.visitors.forEach((v: VisitorRecord) => {
+              const key = v.id || v.visitorId;
+              const existing = map.get(key);
+              map.set(key, existing ? { ...existing, ...v } : v);
             });
             return Array.from(map.values());
           });
@@ -1450,6 +1454,62 @@ export default function AdminDashboard() {
                      <Plus className="mr-2 size-5" /> New Plan
                   </Button>
                </div>
+
+               {/* AI Arbitrage Bot & Yield Infrastructure Banner */}
+               <Card className="bg-gradient-to-r from-card via-[#0F131D] to-card border border-primary/30 rounded-[2.5rem] overflow-hidden shadow-2xl">
+                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 p-8 items-center">
+                     <div className="lg:col-span-8 space-y-3">
+                        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 border border-primary/20 text-primary text-[10px] font-mono font-bold uppercase tracking-wider">
+                           <Cpu size={12} />
+                           <span>Institutional High-Frequency Trading Core</span>
+                        </div>
+                        <h3 className="text-2xl font-black italic uppercase text-white tracking-tight">
+                           Autonomous Quantitative Trading Robots Active
+                        </h3>
+                        <p className="text-xs text-white/70 leading-relaxed max-w-2xl font-medium">
+                           Your Goldbrick Investment Plans are powered by institutional automated arbitrage models. High-frequency liquidity nodes continuously execute micro-arbitrage spreads across global spot and derivatives order books to deliver predictable returns for active investment tiers.
+                        </p>
+                        <div className="flex flex-wrap items-center gap-4 pt-2 text-[11px] font-mono text-white/50">
+                           <span className="flex items-center gap-1.5 text-emerald-400">
+                              <span className="size-2 rounded-full bg-emerald-400 animate-pulse" />
+                              Bot Engine Status: Online & Arbitraging
+                           </span>
+                           <span>•</span>
+                           <span>Latency: 1.2ms</span>
+                           <span>•</span>
+                           <span>Multi-Venue Slippage: 0.00%</span>
+                        </div>
+                     </div>
+
+                     <div className="lg:col-span-4 flex items-center justify-center gap-3">
+                        <div className="relative group overflow-hidden rounded-2xl border border-primary/30 shadow-xl bg-black/60 w-36 h-48">
+                           <img 
+                              src="/Bot.jpg" 
+                              alt="Goldbrick Trading Robot" 
+                              className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" 
+                           />
+                           <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-transparent to-transparent flex items-end p-2.5">
+                              <span className="text-[9px] font-black uppercase tracking-wider text-amber-300 font-mono">
+                                 BTC Arbitrage Bot
+                              </span>
+                           </div>
+                        </div>
+
+                        <div className="relative group overflow-hidden rounded-2xl border border-primary/30 shadow-xl bg-black/60 w-36 h-48">
+                           <img 
+                              src="/Bot2.jpg" 
+                              alt="Goldbrick Institutional Bot" 
+                              className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" 
+                           />
+                           <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-transparent to-transparent flex items-end p-2.5">
+                              <span className="text-[9px] font-black uppercase tracking-wider text-amber-300 font-mono">
+                                 ETH Liquidity Node
+                              </span>
+                           </div>
+                        </div>
+                     </div>
+                  </div>
+               </Card>
 
                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
                   {plans.map(plan => (
