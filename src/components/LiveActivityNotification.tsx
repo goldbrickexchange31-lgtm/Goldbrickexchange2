@@ -210,14 +210,14 @@ export function LiveActivityNotification() {
   const IconComponent = isDeposit ? ArrowDownLeft : isInvestment ? TrendingUp : ArrowUpRight;
 
   return (
-    <div className="fixed bottom-5 left-5 z-40 max-w-sm pointer-events-none">
+    <div className="fixed bottom-3 left-3 right-3 sm:right-auto sm:bottom-5 sm:left-5 z-40 max-w-sm pointer-events-none">
       <AnimatePresence>
         <motion.div
           initial={{ opacity: 0, y: 30, scale: 0.95 }}
           animate={{ opacity: 1, y: 0, scale: 1 }}
           exit={{ opacity: 0, y: 20, scale: 0.95 }}
           transition={{ duration: 0.35, ease: 'easeOut' }}
-          className="pointer-events-auto bg-[#0A0D14]/90 backdrop-blur-xl border border-white/10 rounded-2xl p-3.5 shadow-2xl shadow-black/80 flex items-start gap-3.5 group hover:border-primary/40 transition-all select-none"
+          className="pointer-events-auto bg-[#0A0D14]/95 backdrop-blur-xl border border-white/10 rounded-2xl p-3 sm:p-3.5 shadow-2xl shadow-black/80 flex items-start gap-3 group hover:border-primary/40 transition-all select-none w-full"
         >
           {/* Visual Indicator Icon */}
           <div className="relative mt-0.5">

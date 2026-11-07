@@ -109,18 +109,18 @@ export default function RegisterPage() {
   };
 
   return (
-    <div className="min-h-screen bg-background flex items-center justify-center p-6 py-20">
-      <Card className="w-full max-w-md bg-card border-border shadow-2xl rounded-[2.5rem] overflow-hidden">
-        <CardHeader className="text-center pt-10 pb-2">
-          <div className="flex justify-center mb-8">
+    <div className="min-h-screen bg-background flex items-center justify-center p-4 sm:p-6 py-12 sm:py-20">
+      <Card className="w-full max-w-md bg-card border-border shadow-2xl rounded-3xl sm:rounded-[2.5rem] overflow-hidden">
+        <CardHeader className="text-center pt-8 sm:pt-10 pb-2">
+          <div className="flex justify-center mb-6 sm:mb-8">
             <Link to="/">
-              <Logo className="h-12" />
+              <Logo className="h-10 sm:h-12" />
             </Link>
           </div>
-          <CardTitle className="text-4xl font-black italic vibrant-text uppercase tracking-tighter">Start Investing</CardTitle>
-          <p className="text-white/40 font-bold text-[10px] uppercase tracking-widest mt-3 px-8 leading-relaxed">Join the elite GoldBrick investment community</p>
+          <CardTitle className="text-3xl sm:text-4xl font-black italic vibrant-text uppercase tracking-tighter">Start Investing</CardTitle>
+          <p className="text-white/40 font-bold text-[10px] uppercase tracking-widest mt-2 sm:mt-3 px-4 sm:px-8 leading-relaxed">Join the elite GoldBrick investment community</p>
         </CardHeader>
-        <CardContent className="p-10 pt-6">
+        <CardContent className="p-5 sm:p-10 pt-4 sm:pt-6">
           {/* One-Click Google Sign Up */}
           <Button
             type="button"
