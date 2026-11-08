@@ -39,16 +39,20 @@ export const Logo: React.FC<{ className?: string }> = ({ className = "h-12" }) =
         </g>
       </svg>
       
-      <div className="flex flex-col justify-center">
-        <div className="text-2xl font-black italic tracking-tighter leading-none text-white">
+      <div className="flex flex-col justify-center select-none">
+        <div className="text-2xl font-['Cinzel',serif] font-black tracking-[0.08em] leading-none live-gold-shimmer">
           GOLDBRICK
         </div>
         <div className="flex items-center gap-2 mt-1">
-          <div className="h-[1px] flex-1 bg-white/20" />
-          <span className="text-[9px] font-bold text-white/60 tracking-[0.3em] uppercase leading-none">
+          <div className="h-[1px] flex-1 bg-gradient-to-r from-transparent via-amber-400/40 to-amber-400/80" />
+          <span className="flex items-center gap-1.5 text-[9px] font-['Plus_Jakarta_Sans',sans-serif] font-black text-amber-300 tracking-[0.35em] uppercase leading-none drop-shadow-sm">
+            <span className="relative flex h-1.5 w-1.5">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-80"></span>
+              <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-amber-400"></span>
+            </span>
             EXCHANGE
           </span>
-          <div className="h-[1px] flex-1 bg-white/20" />
+          <div className="h-[1px] flex-1 bg-gradient-to-r from-amber-400/80 via-amber-400/40 to-transparent" />
         </div>
       </div>
     </div>
