@@ -32,6 +32,7 @@ import {
 } from 'lucide-react';
 import { usePWA } from '../lib/PWAContext';
 import { IOSInstallGuide } from '../components/IOSInstallGuide';
+import { AmbientGoldLighting } from '../components/AmbientGoldLighting';
 import { db } from '../lib/firebase';
 import { collection, onSnapshot } from 'firebase/firestore';
 
@@ -168,7 +169,8 @@ export default function LandingPage() {
   ];
 
   return (
-    <div className="min-h-screen bg-background text-foreground font-sans overflow-x-hidden selection:bg-primary/20 selection:text-primary w-full">
+    <div className="min-h-screen relative bg-[#05080D] text-foreground font-sans overflow-x-hidden selection:bg-primary/20 selection:text-primary w-full">
+      <AmbientGoldLighting />
       <IOSInstallGuide 
         isOpen={showIOSInstructions} 
         onClose={() => setShowIOSInstructions(false)} 
@@ -321,12 +323,12 @@ export default function LandingPage() {
             <span className="truncate">Voted #1 Multi-Asset Investment Platform 2024</span>
           </div>
 
-          <h1 className="text-3xl sm:text-5xl md:text-6xl lg:text-7xl font-['Cinzel',serif] font-black tracking-[-0.02em] leading-[1.08] sm:leading-[1.04] mb-5 sm:mb-6 px-2">
+          <h1 className="text-3xl sm:text-5xl md:text-6xl lg:text-7xl font-['Outfit',sans-serif] font-black tracking-[-0.03em] leading-[1.08] sm:leading-[1.04] mb-5 sm:mb-6 px-2">
             <span className="bg-gradient-to-r from-[#FFFDF7] via-[#FFF0C2] to-[#FBBF24] bg-clip-text text-transparent drop-shadow-[0_4px_24px_rgba(251,191,36,0.25)]">
               Financial Freedom,
             </span>{' '}
             <br />
-            <span className="live-gold-shimmer">
+            <span className="bg-gradient-to-r from-[#FDE68A] via-[#F59E0B] to-[#D97706] bg-clip-text text-transparent drop-shadow-[0_8px_32px_rgba(245,158,11,0.45)]">
               Made Simple.
             </span>
           </h1>

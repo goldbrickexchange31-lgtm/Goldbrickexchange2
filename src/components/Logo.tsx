@@ -40,7 +40,7 @@ export const Logo: React.FC<{ className?: string }> = ({ className = "h-12" }) =
       </svg>
       
       <div className="flex flex-col justify-center select-none">
-        <div className="text-2xl font-['Cinzel',serif] font-black tracking-[0.08em] leading-none live-gold-shimmer">
+        <div className="text-2xl font-['Space_Grotesk',sans-serif] font-bold tracking-[0.09em] leading-none live-gold-shimmer">
           GOLDBRICK
         </div>
         <div className="flex items-center gap-2 mt-1">
