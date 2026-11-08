@@ -33,6 +33,7 @@ import {
 import { usePWA } from '../lib/PWAContext';
 import { IOSInstallGuide } from '../components/IOSInstallGuide';
 import { AmbientGoldLighting } from '../components/AmbientGoldLighting';
+import { Cinematic3DBackground } from '../components/Cinematic3DBackground';
 import { db } from '../lib/firebase';
 import { collection, onSnapshot } from 'firebase/firestore';
 
@@ -170,14 +171,17 @@ export default function LandingPage() {
 
   return (
     <div className="min-h-screen relative bg-[#05080D] text-foreground font-sans overflow-x-hidden selection:bg-primary/20 selection:text-primary w-full">
+      <Cinematic3DBackground />
       <AmbientGoldLighting />
       <IOSInstallGuide 
         isOpen={showIOSInstructions} 
         onClose={() => setShowIOSInstructions(false)} 
       />
 
-      {/* Top Asset Ticker Strip */}
-      <div className="w-full bg-black/80 border-b border-border/40 py-2 px-3 sm:px-4 backdrop-blur-md">
+      {/* Main Content Wrapper (z-10 above 3D background & lighting) */}
+      <div className="relative z-10 w-full">
+        {/* Top Asset Ticker Strip */}
+      <div className="w-full bg-[#05080D]/70 border-b border-white/5 py-2 px-3 sm:px-4 backdrop-blur-md">
         <div className="max-w-7xl mx-auto flex items-center justify-between text-xs overflow-x-auto no-scrollbar gap-4 sm:gap-6">
           <div className="flex items-center gap-1.5 shrink-0">
             <span className="relative flex h-2 w-2">
@@ -210,7 +214,7 @@ export default function LandingPage() {
       </div>
 
       {/* Primary Sticky Header */}
-      <header className="sticky top-0 z-50 backdrop-blur-xl bg-background/90 border-b border-border/50">
+      <header className="sticky top-0 z-50 backdrop-blur-xl bg-[#05080D]/80 border-b border-white/10">
         <nav className="flex items-center justify-between px-4 sm:px-6 py-3.5 sm:py-4 max-w-7xl mx-auto w-full">
           <Link to="/" className="flex items-center shrink-0">
             <Logo className="h-8 sm:h-9 md:h-10" />
@@ -387,7 +391,7 @@ export default function LandingPage() {
 
       {/* AI Trading Robots Section (Showcasing Bot.jpg and Bot2.jpg) */}
       <section id="trading-bots" className="py-16 sm:py-20 px-4 sm:px-6 max-w-7xl mx-auto w-full">
-        <div className="relative rounded-3xl sm:rounded-[2.5rem] bg-gradient-to-br from-[#0F131D] via-card to-[#090B10] border border-primary/30 p-5 sm:p-10 lg:p-14 overflow-hidden shadow-2xl">
+        <div className="relative rounded-3xl sm:rounded-[2.5rem] bg-gradient-to-br from-[#0F131D]/80 via-card/75 to-[#090B10]/80 backdrop-blur-md border border-primary/30 p-5 sm:p-10 lg:p-14 overflow-hidden shadow-2xl">
           <div className="text-center max-w-3xl mx-auto mb-10 sm:mb-14 space-y-2 sm:space-y-3">
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 border border-primary/30 text-primary text-xs font-mono font-bold uppercase tracking-wider">
               <BotIcon size={14} className="text-primary" />
@@ -498,7 +502,7 @@ export default function LandingPage() {
 
       {/* Interactive Yield Calculator Section */}
       <section id="calculator" className="py-16 sm:py-20 px-4 sm:px-6 max-w-7xl mx-auto w-full">
-        <div className="relative rounded-3xl sm:rounded-[2.5rem] bg-gradient-to-b from-card via-card/90 to-background border border-border/80 p-5 sm:p-8 md:p-12 overflow-hidden shadow-2xl w-full">
+        <div className="relative rounded-3xl sm:rounded-[2.5rem] bg-gradient-to-b from-card/80 via-card/70 to-background/70 backdrop-blur-md border border-border/80 p-5 sm:p-8 md:p-12 overflow-hidden shadow-2xl w-full">
           <div className="absolute top-0 right-0 w-80 h-80 bg-primary/10 blur-[130px] -z-10 rounded-full" />
 
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-10 items-center">
@@ -1016,7 +1020,7 @@ export default function LandingPage() {
 
       {/* Bottom Conversion Banner */}
       <section className="py-16 sm:py-20 px-4 sm:px-6 max-w-5xl mx-auto text-center w-full">
-        <div className="relative rounded-3xl sm:rounded-[2.5rem] bg-gradient-to-r from-amber-950/40 via-card to-amber-950/40 border border-primary/40 p-6 sm:p-12 overflow-hidden shadow-2xl">
+        <div className="relative rounded-3xl sm:rounded-[2.5rem] bg-gradient-to-r from-amber-950/40 via-card/75 to-amber-950/40 backdrop-blur-md border border-primary/40 p-6 sm:p-12 overflow-hidden shadow-2xl">
           <div className="max-w-2xl mx-auto space-y-4 sm:space-y-6">
             <span className="text-[10px] font-mono font-bold uppercase tracking-widest text-primary">
               Registration Open
@@ -1046,7 +1050,7 @@ export default function LandingPage() {
       </div>
 
       {/* Footer */}
-      <footer className="border-t border-border/60 py-10 sm:py-14 px-4 sm:px-6 bg-black/40 w-full">
+      <footer className="border-t border-white/10 py-10 sm:py-14 px-4 sm:px-6 bg-[#05080D]/65 backdrop-blur-md w-full relative">
         <div className="max-w-7xl mx-auto grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-8 sm:gap-10">
           <div className="space-y-3 sm:space-y-4 sm:col-span-2 md:col-span-1">
             <Logo className="h-8" />
@@ -1089,6 +1093,7 @@ export default function LandingPage() {
           </div>
         </div>
       </footer>
+      </div>
     </div>
   );
 }

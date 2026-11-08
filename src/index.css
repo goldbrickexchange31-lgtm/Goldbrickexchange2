@@ -79,103 +79,123 @@
 
 /* ============================================================
    GOLD BRICK EXCHANGE — PREMIUM AMBIENT LIGHT ANIMATIONS
-   GPU-accelerated, smooth, non-flickering ambient golden light
+   Full-page, continuous, GPU-accelerated golden lighting
    ============================================================ */
 
-@keyframes ambient-travel-primary {
+@keyframes ambient-travel-top {
   0% {
-    transform: translate3d(-20%, 0, 0) scale(1);
-    opacity: 0.75;
+    transform: translate3d(-15vw, 0, 0) scale(1);
+    opacity: 0.8;
   }
   50% {
-    transform: translate3d(60vw, 40px, 0) scale(1.12);
+    transform: translate3d(60vw, 50px, 0) scale(1.15);
     opacity: 1;
   }
   100% {
-    transform: translate3d(-20%, 0, 0) scale(1);
-    opacity: 0.75;
+    transform: translate3d(-15vw, 0, 0) scale(1);
+    opacity: 0.8;
   }
 }
 
-@keyframes ambient-travel-secondary {
+@keyframes ambient-travel-upper-mid {
   0% {
-    transform: translate3d(85vw, 0, 0) scale(1.05);
+    transform: translate3d(75vw, 0, 0) scale(1.08);
     opacity: 0.85;
   }
   50% {
-    transform: translate3d(-10vw, -30px, 0) scale(0.95);
-    opacity: 0.65;
-  }
-  100% {
-    transform: translate3d(85vw, 0, 0) scale(1.05);
-    opacity: 0.85;
-  }
-}
-
-@keyframes ambient-breathe-hearth {
-  0%, 100% {
-    transform: translate3d(-50%, 0, 0) scale(0.96);
+    transform: translate3d(-15vw, -40px, 0) scale(0.95);
     opacity: 0.7;
   }
+  100% {
+    transform: translate3d(75vw, 0, 0) scale(1.08);
+    opacity: 0.85;
+  }
+}
+
+@keyframes ambient-breathe-center {
+  0%, 100% {
+    transform: translate3d(-50%, 0, 0) scale(0.95);
+    opacity: 0.75;
+  }
   50% {
-    transform: translate3d(-50%, -15px, 0) scale(1.08);
+    transform: translate3d(-50%, -25px, 0) scale(1.12);
     opacity: 1;
   }
 }
 
-@keyframes ambient-beam-sweep {
+@keyframes ambient-travel-lower-mid {
   0% {
-    transform: translate3d(-30%, -10%, 0);
+    transform: translate3d(-20vw, 0, 0) scale(0.96);
+    opacity: 0.75;
   }
   50% {
-    transform: translate3d(20%, 10%, 0);
+    transform: translate3d(65vw, 45px, 0) scale(1.14);
+    opacity: 1;
   }
   100% {
-    transform: translate3d(-30%, -10%, 0);
+    transform: translate3d(-20vw, 0, 0) scale(0.96);
+    opacity: 0.75;
   }
 }
 
-@keyframes ambient-travel-lower {
+@keyframes ambient-travel-footer {
   0% {
-    transform: translate3d(-15vw, 0, 0) scale(0.95);
-    opacity: 0.6;
-  }
-  50% {
-    transform: translate3d(55vw, -20px, 0) scale(1.1);
+    transform: translate3d(70vw, 0, 0) scale(1.1);
     opacity: 0.9;
   }
+  50% {
+    transform: translate3d(-10vw, -35px, 0) scale(0.95);
+    opacity: 0.7;
+  }
   100% {
-    transform: translate3d(-15vw, 0, 0) scale(0.95);
-    opacity: 0.6;
+    transform: translate3d(70vw, 0, 0) scale(1.1);
+    opacity: 0.9;
   }
 }
 
-.ambient-orb-primary {
-  animation: ambient-travel-primary 32s cubic-bezier(0.45, 0.05, 0.55, 0.95) infinite;
+@keyframes ambient-stream-flow {
+  0% {
+    background-position: 0% 0%;
+  }
+  50% {
+    background-position: 100% 100%;
+  }
+  100% {
+    background-position: 0% 0%;
+  }
 }
 
-.ambient-orb-secondary {
-  animation: ambient-travel-secondary 42s cubic-bezier(0.45, 0.05, 0.55, 0.95) infinite;
+.ambient-orb-top {
+  animation: ambient-travel-top 28s cubic-bezier(0.45, 0.05, 0.55, 0.95) infinite;
 }
 
-.ambient-hearth {
-  animation: ambient-breathe-hearth 14s ease-in-out infinite;
+.ambient-orb-upper-mid {
+  animation: ambient-travel-upper-mid 38s cubic-bezier(0.45, 0.05, 0.55, 0.95) infinite;
 }
 
-.ambient-light-beam {
-  animation: ambient-beam-sweep 24s ease-in-out infinite;
+.ambient-orb-center {
+  animation: ambient-breathe-center 18s ease-in-out infinite;
 }
 
-.ambient-orb-lower {
-  animation: ambient-travel-lower 38s cubic-bezier(0.45, 0.05, 0.55, 0.95) infinite;
+.ambient-orb-lower-mid {
+  animation: ambient-travel-lower-mid 34s cubic-bezier(0.45, 0.05, 0.55, 0.95) infinite;
+}
+
+.ambient-orb-footer {
+  animation: ambient-travel-footer 32s cubic-bezier(0.45, 0.05, 0.55, 0.95) infinite;
+}
+
+.ambient-stream {
+  animation: ambient-stream-flow 26s ease-in-out infinite;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .ambient-orb-primary,
-  .ambient-orb-secondary,
-  .ambient-hearth,
-  .ambient-light-beam,
-  .ambient-orb-lower {
+  .ambient-orb-top,
+  .ambient-orb-upper-mid,
+  .ambient-orb-center,
+  .ambient-orb-lower-mid,
+  .ambient-orb-footer,
+  .ambient-stream {
     animation: none !important;
     transform: none !important;
     opacity: 0.8 !important;
