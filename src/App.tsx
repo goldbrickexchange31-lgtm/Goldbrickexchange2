@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import ScrollToTop from './components/ScrollToTop';
 import { Toaster } from './components/ui/sonner';
@@ -23,15 +23,16 @@ import SupportPage from './pages/SupportPage';
 import TermsPage from './pages/TermsPage';
 import VisitorTracker from './components/VisitorTracker';
 import { LiveActivityNotification } from './components/LiveActivityNotification';
+import { GoldbrickLoadingScreen } from './components/GoldbrickLoadingScreen';
+import { PageTransitionLoader } from './components/PageTransitionLoader';
 
 const ProtectedRoute = ({ children, adminOnly = false }: { children: React.ReactNode, adminOnly?: boolean }) => {
   const { user, userData, loading } = useAuth();
   const ADMIN_EMAILS = ['goldbrickexchange31@gmail.com'];
 
-  if (loading) return <div className="h-screen w-screen flex flex-col items-center justify-center bg-background gap-6">
-    <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-primary border-r-2 shadow-[0_0_20px_rgba(var(--primary),0.2)]"></div>
-    <div className="text-[10px] font-black uppercase tracking-[0.4em] text-slate-400 italic animate-pulse">Initializing Security Protocol...</div>
-  </div>;
+  if (loading) {
+    return <GoldbrickLoadingScreen subtitle="VERIFYING SECURITY CREDENTIALS..." />;
+  }
   if (!user) return <Navigate to="/login" />;
   
   const isUserAdmin = userData?.role === 'admin' || (user?.email && ADMIN_EMAILS.includes(user.email));
@@ -65,11 +66,36 @@ function AppRoutes() {
 }
 
 export default function App() {
+  const [initialBoot, setInitialBoot] = useState(() => {
+    try {
+      return !sessionStorage.getItem('gb_initial_boot_done');
+    } catch {
+      return true;
+    }
+  });
+
+  const handleBootComplete = () => {
+    try {
+      sessionStorage.setItem('gb_initial_boot_done', 'true');
+    } catch {
+      // Ignore storage errors in restrictive environments
+    }
+    setInitialBoot(false);
+  };
+
   return (
     <PWAProvider>
       <AuthProvider>
         <BrowserRouter>
+          {initialBoot && (
+            <GoldbrickLoadingScreen 
+              subtitle="GOLDBRICK QUANTUM VAULT INITIALIZING..." 
+              minDuration={1100} 
+              onComplete={handleBootComplete} 
+            />
+          )}
           <ScrollToTop />
+          <PageTransitionLoader />
           <VisitorTracker />
           <LiveActivityNotification />
           <AppRoutes />

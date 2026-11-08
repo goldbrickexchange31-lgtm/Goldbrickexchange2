@@ -85,6 +85,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { handleFirestoreError, OperationType } from '../lib/errorHandlers';
 import AdminLiveVisitors, { VisitorRecord } from '../components/AdminLiveVisitors';
 import ProofLightboxModal from '../components/ProofLightboxModal';
+import { GoldbrickLoadingScreen } from '../components/GoldbrickLoadingScreen';
 
 type Section = 'overview' | 'users' | 'activations' | 'investment' | 'deposit' | 'withdrawal' | 'visitors' | 'chat' | 'settings' | 'wallets';
 
@@ -903,11 +904,9 @@ export default function AdminDashboard() {
     }
   };
 
-  if (loading) return (
-    <div className="h-screen w-screen flex items-center justify-center bg-background">
-      <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-primary"></div>
-    </div>
-  );
+  if (loading) {
+    return <GoldbrickLoadingScreen subtitle="AUTHORIZING COMMAND CENTER ACCESS..." />;
+  }
 
   return (
     <div className="min-h-screen bg-background text-white font-sans flex overflow-hidden">
