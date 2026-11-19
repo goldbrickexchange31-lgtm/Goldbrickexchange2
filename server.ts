@@ -19,6 +19,8 @@ import {
   generatePasswordResetEmailText,
   type SmtpConfig
 } from './server/emailService.js';
+import { verifyRecaptchaV3Token } from './server/recaptchaService.js';
+import { deleteUserAccountCompletely } from './server/userDeletionService.js';
 
 dotenv.config();
 
@@ -468,6 +470,277 @@ async function configureApp() {
   expressApp.get('/api/health', (req, res) => {
     res.json({ status: 'ok', time: new Date().toISOString() });
   });
+
+  // Public Google reCAPTCHA v3 config (Site Key only - NEVER exposes Secret Key)
+  expressApp.get('/api/auth/recaptcha-config', (_req, res) => {
+    const siteKey = (process.env.VITE_RECAPTCHA_SITE_KEY || process.env.RECAPTCHA_SITE_KEY || '').trim();
+    res.json({
+      enabled: Boolean(siteKey),
+      siteKey,
+      version: 'v3',
+    });
+  });
+
+  // Standalone Google reCAPTCHA v3 token verification endpoint
+  expressApp.post('/api/auth/verify-recaptcha', async (req, res) => {
+    try {
+      const { token, action } = req.body || {};
+      const result = await verifyRecaptchaV3Token({
+        token,
+        expectedAction: typeof action === 'string' && action.trim() ? action.trim() : 'register',
+        remoteIp: extractClientIp(req),
+      });
+
+      if (!result.ok) {
+        return res.status(result.status).json({
+          verified: false,
+          code: result.code,
+          error: result.error,
+        });
+      }
+
+      return res.json({
+        verified: true,
+        score: result.score,
+        action: result.action,
+      });
+    } catch (error: any) {
+      console.error('[RECAPTCHA] Endpoint error:', error?.message || error);
+      return res.status(500).json({
+        verified: false,
+        error: 'Unexpected error while verifying security check.',
+      });
+    }
+  });
+
+  // Protected registration endpoint: Verifies Google reCAPTCHA v3 on backend BEFORE creating Firebase Auth account
+  expressApp.post('/api/auth/register', async (req, res) => {
+    try {
+      const { email, password, displayName, referralCode, recaptchaToken, action } = req.body || {};
+
+      const cleanEmail = typeof email === 'string' ? email.trim() : '';
+      const cleanName = typeof displayName === 'string' ? displayName.trim() : '';
+      const cleanPassword = typeof password === 'string' ? password : '';
+      const cleanRef = typeof referralCode === 'string' && referralCode.trim() ? referralCode.trim().toUpperCase() : null;
+
+      if (!cleanName || cleanName.length < 2) {
+        return res.status(400).json({ error: 'Please enter your full name.' });
+      }
+      if (!cleanEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+        return res.status(400).json({ error: 'Please enter a valid email address.' });
+      }
+      if (cleanPassword.length < 6) {
+        return res.status(400).json({ error: 'Password must be at least 6 characters long.' });
+      }
+
+      // Mandatory server-side Google reCAPTCHA v3 verification BEFORE creating Firebase Auth account
+      const recaptchaResult = await verifyRecaptchaV3Token({
+        token: recaptchaToken,
+        expectedAction: typeof action === 'string' && action.trim() ? action.trim() : 'register',
+        remoteIp: extractClientIp(req),
+      });
+
+      if (!recaptchaResult.ok) {
+        return res.status(recaptchaResult.status).json({
+          verified: false,
+          code: recaptchaResult.code,
+          error: recaptchaResult.error,
+        });
+      }
+
+      // Initialize Firebase Admin SDK and attempt server-side user creation
+      const firestore = getDb();
+      try {
+        const userRecord = await admin.auth().createUser({
+          email: cleanEmail,
+          password: cleanPassword,
+          displayName: cleanName,
+        });
+
+        const myReferralCode = Math.random().toString(36).substring(2, 8).toUpperCase();
+        let profileCreatedOnServer = false;
+
+        try {
+          await firestore.collection('users').doc(userRecord.uid).set({
+            uid: userRecord.uid,
+            email: userRecord.email || cleanEmail,
+            displayName: cleanName,
+            balance: 0,
+            totalProfit: 0,
+            totalInvested: 0,
+            referralEarnings: 0,
+            referralCode: myReferralCode,
+            referredBy: cleanRef,
+            role: 'user',
+            status: 'active',
+            accountStatus: 'active',
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          });
+          profileCreatedOnServer = true;
+        } catch (dbErr: any) {
+          console.warn('[REGISTER] Server Firestore write skipped (client will initialize profile):', dbErr?.message || dbErr);
+        }
+
+        return res.status(201).json({
+          success: true,
+          verified: true,
+          createdOnServer: true,
+          profileCreatedOnServer,
+          uid: userRecord.uid,
+          score: recaptchaResult.score,
+        });
+      } catch (authErr: any) {
+        const code = authErr?.code || '';
+        if (code === 'auth/email-already-exists') {
+          return res.status(409).json({
+            verified: true,
+            code,
+            error: 'An account with this email address already exists. Please sign in instead.',
+          });
+        }
+        if (code === 'auth/invalid-email') {
+          return res.status(400).json({
+            verified: true,
+            code,
+            error: 'Please enter a valid email address.',
+          });
+        }
+        if (code === 'auth/invalid-password') {
+          return res.status(400).json({
+            verified: true,
+            code,
+            error: 'Password must be at least 6 characters long.',
+          });
+        }
+
+        const msg = String(authErr?.message || '');
+        if (
+          code === 'auth/insufficient-permission' ||
+          code === 'app/invalid-credential' ||
+          msg.includes('PERMISSION_DENIED') ||
+          msg.includes('Could not load the default credentials')
+        ) {
+          console.warn('[REGISTER] Server Admin Auth creation skipped (IAM not provisioned yet); reCAPTCHA verified, allowing client creation:', msg);
+          return res.status(200).json({
+            success: true,
+            verified: true,
+            createdOnServer: false,
+            score: recaptchaResult.score,
+          });
+        }
+
+        throw authErr;
+      }
+    } catch (error: any) {
+      console.error('[REGISTER] Error:', error?.message || error);
+      return res.status(500).json({
+        error: error?.message || 'Registration failed. Please try again.',
+      });
+    }
+  });
+
+  // Helper to verify Admin caller via Firebase ID Token
+  const ADMIN_EMAILS = ['goldbrickexchange31@gmail.com'];
+  async function authenticateAdminRequest(req: express.Request): Promise<{ ok: true; uid: string; email?: string } | { ok: false; status: number; error: string }> {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return { ok: false, status: 401, error: 'Authentication required. Please log in again.' };
+    }
+
+    const idToken = authHeader.slice('Bearer '.length).trim();
+    if (!idToken) {
+      return { ok: false, status: 401, error: 'Invalid authorization token.' };
+    }
+
+    const firestore = getDb();
+    let decoded: admin.auth.DecodedIdToken;
+    try {
+      decoded = await admin.auth().verifyIdToken(idToken, true);
+    } catch (err: any) {
+      const code = err?.code || '';
+      if (code === 'auth/id-token-revoked') {
+        return { ok: false, status: 401, error: 'Session revoked. Please log in again.' };
+      }
+      if (code === 'auth/id-token-expired') {
+        return { ok: false, status: 401, error: 'Session expired. Please refresh and log in again.' };
+      }
+      if (code === 'auth/insufficient-permission' || String(err?.message || '').includes('PERMISSION_DENIED')) {
+        // Fallback to stateless JWT signature verification when revocation IAM check isn't provisioned yet
+        try {
+          decoded = await admin.auth().verifyIdToken(idToken, false);
+        } catch (fallbackErr: any) {
+          return { ok: false, status: 401, error: 'Invalid or expired authentication token.' };
+        }
+      } else {
+        return { ok: false, status: 401, error: 'Invalid authentication token.' };
+      }
+    }
+
+    const callerEmail = (decoded.email || '').trim().toLowerCase();
+    let isAuthorizedAdmin = ADMIN_EMAILS.includes(callerEmail) || decoded.admin === true || decoded.role === 'admin';
+
+    if (!isAuthorizedAdmin) {
+      try {
+        const callerSnap = await firestore.collection('users').doc(decoded.uid).get();
+        const callerRole = String(callerSnap.data()?.role || '').toLowerCase();
+        if (callerRole === 'admin' || callerRole === 'super_admin' || callerRole === 'superadmin') {
+          isAuthorizedAdmin = true;
+        }
+      } catch (dbErr: any) {
+        console.warn('[ADMIN-AUTH] Firestore role lookup notice:', dbErr?.message || dbErr);
+      }
+    }
+
+    if (!isAuthorizedAdmin) {
+      return { ok: false, status: 403, error: 'Forbidden: Only authorized admins can perform this action.' };
+    }
+
+    return { ok: true, uid: decoded.uid, email: decoded.email };
+  }
+
+  // Admin Account Deletion Endpoint (Permanent Auth + Firestore + Uploaded Files Cleanup)
+  const handleAdminDeleteUser = async (req: express.Request, res: express.Response) => {
+    try {
+      const authCheck = await authenticateAdminRequest(req);
+      if (authCheck.ok === false) {
+        return res.status(authCheck.status).json({ error: authCheck.error });
+      }
+
+      const targetUid = req.params.uid;
+      const result = await deleteUserAccountCompletely({
+        targetUid,
+        callerUid: authCheck.uid,
+        callerEmail: authCheck.email,
+        adminSdk: admin,
+        db: getDb(),
+        cloudinaryClient: cloudinary,
+      });
+
+      if (!result.ok) {
+        return res.status(result.status).json({
+          success: false,
+          code: result.code,
+          error: result.error,
+        });
+      }
+
+      return res.json({
+        success: true,
+        deletedUid: result.deletedUid,
+        deletedEmail: result.deletedEmail,
+        cleanup: result.cleanup,
+      });
+    } catch (error: any) {
+      console.error('[ADMIN-DELETE] Unexpected error:', error);
+      return res.status(500).json({
+        success: false,
+        error: error?.message || 'Internal server error while deleting user account.',
+      });
+    }
+  };
+
+  expressApp.delete('/api/admin/users/:uid', handleAdminDeleteUser);
+  expressApp.post('/api/admin/users/:uid/delete', handleAdminDeleteUser);
 
   // Cloudinary Signed Upload Signature (Secure)
   expressApp.post('/api/upload/signature', (req, res) => {

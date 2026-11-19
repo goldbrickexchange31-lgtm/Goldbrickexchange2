@@ -56,7 +56,9 @@ import {
   Server,
   RefreshCw,
   Cpu,
-  Bot
+  Bot,
+  Loader2,
+  AlertTriangle
 } from 'lucide-react';
 import { useAuth } from '../lib/AuthContext';
 import { db, auth } from '../lib/firebase';
@@ -112,6 +114,8 @@ export default function AdminDashboard() {
   const [rejectingActivation, setRejectingActivation] = useState<any>(null);
   const [rejectionReasonInput, setRejectionReasonInput] = useState('');
   const [deactivatingUser, setDeactivatingUser] = useState<any>(null);
+  const [deletingUser, setDeletingUser] = useState<any>(null);
+  const [isDeletingUser, setIsDeletingUser] = useState(false);
   const [isSavingActivationConfig, setIsSavingActivationConfig] = useState(false);
   const [plans, setPlans] = useState<any[]>([]);
   const [wallets, setWallets] = useState<any[]>([]);
@@ -798,6 +802,72 @@ export default function AdminDashboard() {
     }
   };
 
+  const isProtectedAdminUser = (u: any) => {
+    const email = String(u?.email || '').trim().toLowerCase();
+    const role = String(u?.role || '').trim().toLowerCase();
+    const currentEmail = String(auth.currentUser?.email || '').trim().toLowerCase();
+    return (
+      email === 'goldbrickexchange31@gmail.com' ||
+      (currentEmail && email === currentEmail) ||
+      u?.uid === auth.currentUser?.uid ||
+      u?.id === auth.currentUser?.uid ||
+      role === 'admin' ||
+      role === 'super_admin' ||
+      role === 'superadmin'
+    );
+  };
+
+  const handleConfirmDeleteUser = async () => {
+    if (!deletingUser) return;
+    if (isProtectedAdminUser(deletingUser)) {
+      toast.error('Protected admin or super-admin accounts cannot be deleted.');
+      setDeletingUser(null);
+      return;
+    }
+
+    const targetUid = deletingUser.uid || deletingUser.id;
+    setIsDeletingUser(true);
+    try {
+      const currentUser = auth.currentUser;
+      if (!currentUser) {
+        toast.error('Your admin session is missing. Please log in again.');
+        return;
+      }
+
+      const idToken = await currentUser.getIdToken(true);
+      const res = await fetch(`/api/admin/users/${encodeURIComponent(targetUid)}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${idToken}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.success) {
+        toast.error(data?.error || 'Failed to delete user account.');
+        return;
+      }
+
+      const docsRemoved = data?.cleanup?.firestoreDocsDeleted ?? 0;
+      const filesRemoved = data?.cleanup?.filesDeleted ?? 0;
+      const warnings: string[] = Array.isArray(data?.cleanup?.warnings) ? data.cleanup.warnings : [];
+
+      if (warnings.length > 0) {
+        toast.success(`Account deleted (${deletingUser.email || targetUid}). Auth revoked & deleted, ${docsRemoved} records cleaned. Note: ${warnings[0]}`);
+      } else {
+        toast.success(`Account permanently deleted (${deletingUser.email || targetUid}). Removed ${docsRemoved} records and ${filesRemoved} uploaded files.`);
+      }
+
+      setDeletingUser(null);
+    } catch (e: any) {
+      console.error('Delete user account error:', e);
+      toast.error(e?.message || 'Unable to delete account. Please try again.');
+    } finally {
+      setIsDeletingUser(false);
+    }
+  };
+
   const handleSystemReset = async () => {
     if (!window.confirm('WARNING: This will delete ALL users (except admins), all transactions, all investments, and all chats. This cannot be undone. Are you sure?')) {
       return;
@@ -1430,6 +1500,23 @@ export default function AdminDashboard() {
                                       >
                                          <ShieldAlert size={18} />
                                       </Button>
+                                      {isProtectedAdminUser(u) ? (
+                                        <Badge className="uppercase text-[9px] font-black px-2.5 py-1 rounded-lg border border-primary/30 bg-primary/10 text-primary flex items-center gap-1">
+                                          <ShieldCheck size={12} />
+                                          Admin
+                                        </Badge>
+                                      ) : (
+                                        <Button
+                                          size="sm"
+                                          variant="outline"
+                                          className="h-9 bg-red-500/10 text-red-400 border border-red-500/30 hover:bg-red-600 hover:text-white text-[10px] font-black uppercase rounded-xl px-3 transition-colors cursor-pointer gap-1.5"
+                                          onClick={() => setDeletingUser(u)}
+                                          title="Permanently Delete Account"
+                                        >
+                                          <Trash2 size={13} />
+                                          Delete Account
+                                        </Button>
+                                      )}
                                    </div>
                                 </td>
                              </tr>
@@ -2481,6 +2568,80 @@ export default function AdminDashboard() {
             </Button>
             <Button onClick={handleConfirmDeactivateUser} className="bg-amber-600 hover:bg-amber-500 text-white font-black uppercase text-xs tracking-wider rounded-xl cursor-pointer">
               Deactivate Account
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Permanent Delete User Account Confirmation Dialog */}
+      <Dialog open={Boolean(deletingUser)} onOpenChange={(open) => { if (!open && !isDeletingUser) setDeletingUser(null); }}>
+        <DialogContent className="bg-card border-red-500/30 text-white sm:max-w-lg rounded-3xl p-6 sm:p-8 shadow-2xl">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-black italic uppercase tracking-tight text-white flex items-center gap-2.5">
+              <AlertTriangle className="size-6 text-red-500 shrink-0" />
+              Delete User Account Permanently?
+            </DialogTitle>
+            <DialogDescription className="text-white/65 text-xs mt-2 leading-relaxed">
+              This action permanently deletes the user's Firebase Authentication credentials, revokes all active sessions, removes their Firestore profile, investments, transactions, activation requests, support chat history, and uploaded payment proof files.
+            </DialogDescription>
+          </DialogHeader>
+
+          {deletingUser && (
+            <div className="bg-background/90 border border-white/10 rounded-2xl p-4 my-4 space-y-2.5 text-xs">
+              <div className="flex items-center justify-between gap-4">
+                <span className="text-white/40 uppercase font-black tracking-widest text-[10px]">Client Name</span>
+                <span className="font-bold text-white truncate">{deletingUser.displayName || 'User'}</span>
+              </div>
+              <div className="flex items-center justify-between gap-4">
+                <span className="text-white/40 uppercase font-black tracking-widest text-[10px]">Email Address</span>
+                <span className="font-mono text-white/90 truncate">{deletingUser.email || 'N/A'}</span>
+              </div>
+              <div className="flex items-center justify-between gap-4">
+                <span className="text-white/40 uppercase font-black tracking-widest text-[10px]">User ID</span>
+                <span className="font-mono text-[11px] text-white/60 truncate">{deletingUser.uid || deletingUser.id}</span>
+              </div>
+              <div className="flex items-center justify-between gap-4">
+                <span className="text-white/40 uppercase font-black tracking-widest text-[10px]">Wallet Balance</span>
+                <span className="font-mono font-black text-amber-400">${(deletingUser.balance || 0).toLocaleString()}</span>
+              </div>
+              <div className="flex items-center justify-between gap-4">
+                <span className="text-white/40 uppercase font-black tracking-widest text-[10px]">Account / Access</span>
+                <span className="font-bold uppercase text-[11px] text-white/80">
+                  {(deletingUser.accountStatus || 'active').toUpperCase()} · {(deletingUser.status || 'active').toUpperCase()}
+                </span>
+              </div>
+            </div>
+          )}
+
+          <div className="rounded-xl bg-red-500/10 border border-red-500/20 p-3 text-[11px] text-red-200/90 leading-relaxed">
+            This cannot be undone. Old login credentials will immediately stop working, while the email remains free if they choose to register a brand-new account later.
+          </div>
+
+          <DialogFooter className="gap-2 sm:gap-2 mt-4">
+            <Button
+              variant="ghost"
+              disabled={isDeletingUser}
+              onClick={() => setDeletingUser(null)}
+              className="rounded-xl text-white/70 hover:text-white cursor-pointer"
+            >
+              Cancel
+            </Button>
+            <Button
+              disabled={isDeletingUser}
+              onClick={handleConfirmDeleteUser}
+              className="bg-red-600 hover:bg-red-500 text-white font-black uppercase text-xs tracking-wider rounded-xl cursor-pointer gap-2"
+            >
+              {isDeletingUser ? (
+                <>
+                  <Loader2 className="size-4 animate-spin" />
+                  Deleting Account...
+                </>
+              ) : (
+                <>
+                  <Trash2 className="size-4" />
+                  Permanently Delete Account
+                </>
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>

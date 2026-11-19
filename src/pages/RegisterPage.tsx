@@ -7,13 +7,14 @@ import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { toast } from 'sonner';
 import { auth, db } from '../lib/firebase';
-import { createUserWithEmailAndPassword, updateProfile } from 'firebase/auth';
-import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { createUserWithEmailAndPassword, signInWithEmailAndPassword, updateProfile } from 'firebase/auth';
+import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 import { handleFirestoreError, OperationType } from '../lib/errorHandlers';
 import { GoogleIcon } from '../components/GoogleIcon';
 import { loginOrSignUpWithGoogle, formatGoogleAuthError } from '../lib/googleAuth';
 import { AuthorizedDomainModal } from '../components/AuthorizedDomainModal';
-import { Loader2 } from 'lucide-react';
+import { executeRecaptchaV3, loadRecaptchaV3 } from '../lib/recaptcha';
+import { Loader2, ShieldCheck, AlertCircle } from 'lucide-react';
 
 export default function RegisterPage() {
   const [params] = useSearchParams();
@@ -26,6 +27,7 @@ export default function RegisterPage() {
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
   const [showDomainModal, setShowDomainModal] = useState(false);
+  const [captchaError, setCaptchaError] = useState<string | null>(null);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -35,9 +37,31 @@ export default function RegisterPage() {
     }
   }, [params]);
 
+  useEffect(() => {
+    loadRecaptchaV3().catch((err) => {
+      console.warn('[reCAPTCHA] Preload notice:', err?.message || err);
+    });
+  }, []);
+
   const handleGoogleSignUp = async () => {
+    setCaptchaError(null);
     setGoogleLoading(true);
     try {
+      // Verify reCAPTCHA v3 on backend before initiating Google account creation
+      const recaptchaToken = await executeRecaptchaV3('register');
+      const verifyRes = await fetch('/api/auth/verify-recaptcha', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: recaptchaToken, action: 'register' }),
+      });
+      const verifyData = await verifyRes.json().catch(() => ({}));
+      if (!verifyRes.ok || !verifyData?.verified) {
+        const msg = verifyData?.error || 'Security verification failed. Please try again.';
+        setCaptchaError(msg);
+        toast.error(msg);
+        return;
+      }
+
       const refCode = manualReferralCode || params.get('ref') || null;
       const user = await loginOrSignUpWithGoogle(refCode);
       toast.success(`Account ready! Welcome, ${user.displayName || 'Investor'}!`);
@@ -46,6 +70,9 @@ export default function RegisterPage() {
       if (error?.code === 'auth/unauthorized-domain') {
         console.warn('Google Sign-Up: Domain not yet allowlisted in Firebase project');
         setShowDomainModal(true);
+      } else if (error?.message && !error?.code) {
+        setCaptchaError(error.message);
+        toast.error(error.message);
       } else {
         console.warn('Google Sign-Up notice:', error?.code || error?.message || error);
         const friendlyMsg = formatGoogleAuthError(error);
@@ -58,51 +85,112 @@ export default function RegisterPage() {
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
+    setCaptchaError(null);
+
     if (!agreed) {
       toast.error('Please agree to the Terms and Conditions');
+      return;
+    }
+    if (password.length < 6) {
+      toast.error('Password must be at least 6 characters long');
       return;
     }
     if (password !== confirmPassword) {
       toast.error('Passwords do not match');
       return;
     }
+
     setLoading(true);
     try {
-      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-      const user = userCredential.user;
+      // 1. Generate reCAPTCHA v3 token
+      let recaptchaToken = '';
+      try {
+        recaptchaToken = await executeRecaptchaV3('register');
+      } catch (capErr: any) {
+        const msg = capErr?.message || 'Security verification could not run. Please refresh the page and try again.';
+        setCaptchaError(msg);
+        toast.error(msg);
+        return;
+      }
 
-      await updateProfile(user, { displayName: name });
+      const referredBy = manualReferralCode.trim() ? manualReferralCode.trim().toUpperCase() : (params.get('ref') || null);
 
-      // Generate random referral code
-      const myReferralCode = Math.random().toString(36).substring(2, 8).toUpperCase();
-      const referredBy = manualReferralCode || params.get('ref') || null;
+      // 2. Verify reCAPTCHA securely on backend BEFORE creating Firebase Auth account
+      const res = await fetch('/api/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: email.trim(),
+          password,
+          displayName: name.trim(),
+          referralCode: referredBy,
+          recaptchaToken,
+          action: 'register',
+        }),
+      });
 
-      // Create user doc
-      await setDoc(doc(db, 'users', user.uid), {
-        uid: user.uid,
-        email: user.email,
-        displayName: name,
-        balance: 0,
-        totalProfit: 0,
-        totalInvested: 0,
-        referralEarnings: 0,
-        referralCode: myReferralCode,
-        referredBy: referredBy,
-        role: 'user',
-        status: 'active',
-        accountStatus: 'active',
-        createdAt: serverTimestamp()
-      }).catch(e => handleFirestoreError(e, OperationType.WRITE, `users/${user.uid}`));
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.verified) {
+        const msg = data?.error || 'Security verification failed. Please refresh and try again.';
+        if (data?.code && data.code !== 'auth/email-already-exists') {
+          setCaptchaError(msg);
+        }
+        toast.error(msg);
+        return;
+      }
+
+      // 3. Sign in (if created on server) or create client Auth user (only after backend verification succeeded)
+      let user;
+      if (data.createdOnServer) {
+        const cred = await signInWithEmailAndPassword(auth, email.trim(), password);
+        user = cred.user;
+      } else {
+        const userCredential = await createUserWithEmailAndPassword(auth, email.trim(), password);
+        user = userCredential.user;
+        await updateProfile(user, { displayName: name.trim() });
+      }
+
+      // 4. Ensure Firestore user profile exists
+      const userDocRef = doc(db, 'users', user.uid);
+      const existingSnap = await getDoc(userDocRef);
+      if (!existingSnap.exists()) {
+        const myReferralCode = Math.random().toString(36).substring(2, 8).toUpperCase();
+        await setDoc(userDocRef, {
+          uid: user.uid,
+          email: user.email || email.trim(),
+          displayName: name.trim(),
+          balance: 0,
+          totalProfit: 0,
+          totalInvested: 0,
+          referralEarnings: 0,
+          referralCode: myReferralCode,
+          referredBy: referredBy,
+          role: 'user',
+          status: 'active',
+          accountStatus: 'active',
+          createdAt: serverTimestamp()
+        }).catch(e => handleFirestoreError(e, OperationType.WRITE, `users/${user.uid}`));
+      }
 
       toast.success('Account created successfully');
       navigate('/dashboard');
     } catch (error: any) {
-      try {
-        const info = JSON.parse(error.message);
-        toast.error(`Permission Denied: ${info.error}`);
-      } catch {
-        toast.error(error.message || 'Registration failed');
+      let message = error?.message || 'Registration failed';
+      if (error?.code === 'auth/email-already-in-use') {
+        message = 'An account with this email address already exists. Please sign in instead.';
+      } else if (error?.code === 'auth/weak-password') {
+        message = 'Password is too weak. Please use at least 6 characters.';
+      } else if (error?.code === 'auth/invalid-email') {
+        message = 'Please enter a valid email address.';
+      } else {
+        try {
+          const info = JSON.parse(error.message);
+          message = `Permission Denied: ${info.error}`;
+        } catch {
+          // keep message
+        }
       }
+      toast.error(message);
     } finally {
       setLoading(false);
     }
@@ -218,13 +306,34 @@ export default function RegisterPage() {
                 I agree to the <Link to="/terms" className="text-primary hover:underline transition-all">Terms and Conditions</Link>
               </Label>
             </div>
+            {captchaError && (
+              <div className="flex items-start gap-2.5 p-3.5 rounded-2xl bg-red-500/10 border border-red-500/30 text-red-300 text-xs font-medium">
+                <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
+                <span>{captchaError}</span>
+              </div>
+            )}
             <Button 
               type="submit" 
               className="w-full bg-primary text-primary-foreground font-black h-16 rounded-2xl shadow-lg shadow-primary/20 hover:scale-[1.02] transition-all uppercase text-sm"
-              disabled={loading}
+              disabled={loading || googleLoading}
             >
-              {loading ? 'Creating Account...' : 'Sign Up Now'}
+              {loading ? (
+                <span className="flex items-center gap-2">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Verifying & Creating Account...
+                </span>
+              ) : 'Sign Up Now'}
             </Button>
+
+            <div className="flex items-center justify-center gap-2 text-[10px] text-white/40 text-center leading-relaxed pt-1">
+              <ShieldCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+              <span>
+                Protected by Google reCAPTCHA v3 ·{' '}
+                <a href="https://policies.google.com/privacy" target="_blank" rel="noreferrer" className="text-white/60 hover:text-primary underline">Privacy</a>
+                {' & '}
+                <a href="https://policies.google.com/terms" target="_blank" rel="noreferrer" className="text-white/60 hover:text-primary underline">Terms</a>
+              </span>
+            </div>
           </form>
           <div className="mt-8 text-center text-[10px] font-black uppercase tracking-widest">
             <span className="text-white/40">Already a member? </span>

@@ -229,6 +229,11 @@ body {
   scrollbar-width: none;
 }
 
+/* Hide floating reCAPTCHA badge when inline Google Privacy & Terms disclosure is displayed */
+.grecaptcha-badge {
+  visibility: hidden !important;
+}
+
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 
