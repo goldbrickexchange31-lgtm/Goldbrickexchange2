@@ -58,7 +58,11 @@ import {
   Cpu,
   Bot,
   Loader2,
-  AlertTriangle
+  AlertTriangle,
+  CheckCheck,
+  Zap,
+  Clock,
+  SlidersHorizontal
 } from 'lucide-react';
 import { useAuth } from '../lib/AuthContext';
 import { db, auth } from '../lib/firebase';
@@ -88,6 +92,14 @@ import { handleFirestoreError, OperationType } from '../lib/errorHandlers';
 import AdminLiveVisitors, { VisitorRecord } from '../components/AdminLiveVisitors';
 import ProofLightboxModal from '../components/ProofLightboxModal';
 import { GoldbrickLoadingScreen } from '../components/GoldbrickLoadingScreen';
+import {
+  ChatAutoReplyConfig,
+  DEFAULT_CHAT_AUTO_REPLY,
+  QUICK_REPLY_PRESETS,
+  formatLastActive,
+  isUserEligibleForAutoReply,
+  toDateSafe,
+} from '../lib/chatSupport';
 
 type Section = 'overview' | 'users' | 'activations' | 'investment' | 'deposit' | 'withdrawal' | 'visitors' | 'chat' | 'settings' | 'wallets';
 
@@ -1100,7 +1112,13 @@ export default function AdminDashboard() {
           </div>
         </header>
 
-        <div className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-10 no-scrollbar">
+        <div
+          className={
+            activeSection === 'chat'
+              ? 'flex-1 min-h-0 flex flex-col overflow-hidden p-0 sm:p-6 lg:p-8'
+              : 'flex-1 overflow-y-auto p-4 sm:p-6 lg:p-10 no-scrollbar'
+          }
+        >
           {/* Overview */}
           {activeSection === 'overview' && (
             <div className="space-y-10">
@@ -1922,10 +1940,10 @@ export default function AdminDashboard() {
             </div>
           )}
 
-          {/* Chat Section */}
+          {/* Chat Section (Full-Page Mobile Optimized) */}
           {activeSection === 'chat' && (
-            <div className="h-[85vh] md:h-[calc(100vh-180px)]">
-               <AdminChatManager />
+            <div className="flex-1 min-h-0 h-full flex flex-col">
+               <AdminChatManager users={users} visitors={visitors} />
             </div>
           )}
 
@@ -2799,172 +2817,961 @@ export default function AdminDashboard() {
   );
 }
 
-function AdminChatManager() {
+function AdminChatManager({
+  users,
+  visitors,
+}: {
+  users: any[];
+  visitors: VisitorRecord[];
+}) {
   const [chats, setChats] = useState<any[]>([]);
-  const [selectedChat, setSelectedChat] = useState<any>(null);
+  const [selectedChatId, setSelectedChatId] = useState<string | null>(null);
   const [messages, setMessages] = useState<any[]>([]);
   const [input, setInput] = useState('');
+  const [chatSearch, setChatSearch] = useState('');
   const [loading, setLoading] = useState(true);
+  const [sending, setSending] = useState(false);
+
+  // Quick Reply / Auto-Responder Configuration
+  const [autoReplyConfig, setAutoReplyConfig] = useState<ChatAutoReplyConfig>(DEFAULT_CHAT_AUTO_REPLY);
+  const [draftAutoReply, setDraftAutoReply] = useState<ChatAutoReplyConfig>(DEFAULT_CHAT_AUTO_REPLY);
+  const [isQuickReplyModalOpen, setIsQuickReplyModalOpen] = useState(false);
+  const [quickReplyUserSearch, setQuickReplyUserSearch] = useState('');
+  const [savingAutoReply, setSavingAutoReply] = useState(false);
+  const [, setClockTick] = useState(0);
+
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  // Periodically refresh relative "Last active Xm ago" timestamps every 30s
   useEffect(() => {
-    const unsub = onSnapshot(query(collection(db, 'chats'), orderBy('lastActive', 'desc')), (snap) => {
-      setChats(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-      setLoading(false);
-    }, (e) => console.warn('Chats list notice:', e.message || e));
+    const t = setInterval(() => setClockTick((c) => c + 1), 30_000);
+    return () => clearInterval(t);
+  }, []);
+
+  // Listen to live chat list
+  useEffect(() => {
+    const unsub = onSnapshot(
+      query(collection(db, 'chats'), orderBy('lastActive', 'desc')),
+      (snap) => {
+        setChats(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+        setLoading(false);
+      },
+      (e) => {
+        console.warn('Chats list notice:', e.message || e);
+        setLoading(false);
+      }
+    );
     return () => unsub();
   }, []);
 
+  // Listen to Quick Reply Auto-Responder settings
   useEffect(() => {
-    if (!selectedChat) return;
-    const unsub = onSnapshot(query(collection(db, 'chats', selectedChat.id, 'messages'), orderBy('createdAt', 'asc')), (snap) => {
-      setMessages(snap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    }, (e) => console.warn('Chat messages notice:', e.message || e));
+    const unsub = onSnapshot(
+      doc(db, 'settings', 'chatAutoReply'),
+      (snap) => {
+        if (snap.exists()) {
+          const merged = { ...DEFAULT_CHAT_AUTO_REPLY, ...(snap.data() as any) };
+          setAutoReplyConfig(merged);
+        }
+      },
+      (e) => console.warn('Auto-reply settings notice:', e.message || e)
+    );
     return () => unsub();
-  }, [selectedChat]);
+  }, []);
 
-  // Handle load scroll and new messages
+  const selectedChat = useMemo(
+    () => chats.find((c) => c.id === selectedChatId) || null,
+    [chats, selectedChatId]
+  );
+
+  // Listen to messages of active chat and mark incoming user messages as seen by admin
   useEffect(() => {
-    if (messages.length > 0 && selectedChat) {
-      // Small timeout to allow DOM to render
-      setTimeout(() => {
-        scrollRef.current?.scrollIntoView({ behavior: 'auto', block: 'end' });
-      }, 150);
+    if (!selectedChatId) {
+      setMessages([]);
+      return;
     }
-  }, [messages.length, selectedChat?.id]);
+
+    const unsub = onSnapshot(
+      query(collection(db, 'chats', selectedChatId, 'messages'), orderBy('createdAt', 'asc')),
+      async (snap) => {
+        const msgs = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        setMessages(msgs);
+
+        const unreadFromUser = msgs.filter(
+          (m: any) => m.senderId !== 'admin' && m.readByAdmin !== true
+        );
+        if (unreadFromUser.length > 0) {
+          try {
+            const batch = writeBatch(db);
+            unreadFromUser.forEach((m: any) => {
+              batch.update(doc(db, 'chats', selectedChatId, 'messages', m.id), {
+                readByAdmin: true,
+                readByAdminAt: serverTimestamp(),
+              });
+            });
+            batch.update(doc(db, 'chats', selectedChatId), { unreadByAdmin: false });
+            await batch.commit();
+          } catch (err) {
+            console.warn('Mark admin read notice:', err);
+          }
+        }
+      },
+      (e) => console.warn('Chat messages notice:', e.message || e)
+    );
+
+    return () => unsub();
+  }, [selectedChatId]);
+
+  // Smoothly keep latest messages visible when switching threads or receiving messages
+  useEffect(() => {
+    if (messages.length > 0 && selectedChatId) {
+      const timer = setTimeout(() => {
+        scrollRef.current?.scrollIntoView({ behavior: 'auto', block: 'end' });
+      }, 120);
+      return () => clearTimeout(timer);
+    }
+  }, [messages.length, selectedChatId]);
+
+  // Compute freshest user activity & online state combining chat presence + live visitor tracking
+  const getUserPresence = (chat: any) => {
+    const uid = chat?.userId || chat?.id;
+    const matchingVisitors = visitors.filter((v) => v.userId && v.userId === uid);
+
+    let freshestVisitorDate: Date | null = null;
+    let visitorOnline = false;
+    let currentPage: string | undefined;
+
+    for (const v of matchingVisitors) {
+      const d = toDateSafe(v.lastSeen);
+      if (d && (!freshestVisitorDate || d.getTime() > freshestVisitorDate.getTime())) {
+        freshestVisitorDate = d;
+        visitorOnline = Boolean(v.isOnline);
+        currentPage = v.currentPage;
+      }
+    }
+
+    const chatLastActive = toDateSafe(chat?.userLastActive) || toDateSafe(chat?.lastActive);
+    let freshestDate: Date | null = chatLastActive;
+    let explicitOnline = Boolean(chat?.userOnline);
+
+    if (
+      freshestVisitorDate &&
+      (!freshestDate || freshestVisitorDate.getTime() > freshestDate.getTime())
+    ) {
+      freshestDate = freshestVisitorDate;
+      explicitOnline = visitorOnline || explicitOnline;
+    }
+
+    const formatted = formatLastActive(freshestDate, explicitOnline);
+    return {
+      ...formatted,
+      inChat: Boolean(chat?.userOnline),
+      currentPage,
+    };
+  };
 
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!input.trim() || !selectedChat) return;
+    const trimmed = input.trim();
+    if (!trimmed || !selectedChat || sending) return;
 
-    const msg = input;
     setInput('');
+    setSending(true);
 
     try {
       await addDoc(collection(db, 'chats', selectedChat.id, 'messages'), {
-        text: msg,
+        text: trimmed,
         senderId: 'admin',
         senderName: 'Admin Support',
-        createdAt: serverTimestamp()
+        isAutoReply: false,
+        readByUser: false,
+        readAt: null,
+        createdAt: serverTimestamp(),
       });
-      
-      // Force scroll on send
-      setTimeout(() => {
-        scrollRef.current?.scrollIntoView({ behavior: 'smooth' });
-      }, 50);
 
       await updateDoc(doc(db, 'chats', selectedChat.id), {
-        lastMessage: msg,
+        lastMessage: trimmed,
+        lastSenderId: 'admin',
         lastActive: serverTimestamp(),
+        lastManualAdminReplyAt: serverTimestamp(),
         unreadByAdmin: false,
-        unreadByUser: true
+        unreadByUser: true,
       });
-    } catch (e: any) {
+
+      setTimeout(() => {
+        scrollRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+      }, 60);
+    } catch {
       toast.error('Failed to send reply');
+      setInput(trimmed);
+    } finally {
+      setSending(false);
     }
   };
 
-  if (loading) return (
-    <div className="flex flex-col items-center justify-center h-full text-slate-300 gap-6">
-      <div className="size-10 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-      <span className="text-[10px] font-black uppercase tracking-[0.4em]">Connecting to Chat...</span>
-    </div>
+  const handleToggleAutoReplyMaster = async () => {
+    const nextEnabled = !autoReplyConfig.enabled;
+    const payload: ChatAutoReplyConfig = {
+      ...autoReplyConfig,
+      enabled: nextEnabled,
+      updatedAt: serverTimestamp(),
+      updatedBy: auth.currentUser?.email || 'admin',
+    };
+    try {
+      await setDoc(doc(db, 'settings', 'chatAutoReply'), payload, { merge: true });
+      toast.success(
+        nextEnabled
+          ? `Quick Reply enabled (${autoReplyConfig.targetMode === 'all' ? 'All Users' : `${autoReplyConfig.selectedUserIds.length} Selected Users`})`
+          : 'Auto Quick Reply paused'
+      );
+    } catch {
+      toast.error('Could not update Quick Reply status');
+    }
+  };
+
+  const handleOpenQuickReplyConfig = () => {
+    setDraftAutoReply({
+      ...DEFAULT_CHAT_AUTO_REPLY,
+      ...autoReplyConfig,
+      selectedUserIds: Array.isArray(autoReplyConfig.selectedUserIds)
+        ? [...autoReplyConfig.selectedUserIds]
+        : [],
+    });
+    setQuickReplyUserSearch('');
+    setIsQuickReplyModalOpen(true);
+  };
+
+  const handleSaveQuickReplyConfig = async () => {
+    if (!draftAutoReply.message.trim()) {
+      toast.error('Please enter a custom quick reply message.');
+      return;
+    }
+    if (
+      draftAutoReply.enabled &&
+      draftAutoReply.targetMode === 'selected' &&
+      draftAutoReply.selectedUserIds.length === 0
+    ) {
+      toast.error('Select at least one user, or switch target to All Users.');
+      return;
+    }
+
+    setSavingAutoReply(true);
+    try {
+      await setDoc(
+        doc(db, 'settings', 'chatAutoReply'),
+        {
+          enabled: draftAutoReply.enabled,
+          message: draftAutoReply.message.trim(),
+          targetMode: draftAutoReply.targetMode,
+          selectedUserIds: draftAutoReply.selectedUserIds,
+          cooldownMinutes: Number(draftAutoReply.cooldownMinutes ?? 5),
+          updatedAt: serverTimestamp(),
+          updatedBy: auth.currentUser?.email || 'admin',
+        },
+        { merge: true }
+      );
+      toast.success('Quick Reply settings saved!');
+      setIsQuickReplyModalOpen(false);
+    } catch {
+      toast.error('Failed to save Quick Reply settings');
+    } finally {
+      setSavingAutoReply(false);
+    }
+  };
+
+  const handleToggleUserForQuickReply = async (targetUid: string) => {
+    if (autoReplyConfig.enabled && autoReplyConfig.targetMode === 'all') {
+      toast.info('Quick Reply is active for All Users. Adjust user targeting here.');
+      handleOpenQuickReplyConfig();
+      return;
+    }
+
+    const currentIds = Array.isArray(autoReplyConfig.selectedUserIds)
+      ? autoReplyConfig.selectedUserIds
+      : [];
+
+    const nextIds = currentIds.includes(targetUid)
+      ? currentIds.filter((id) => id !== targetUid)
+      : [...currentIds, targetUid];
+
+    try {
+      await setDoc(
+        doc(db, 'settings', 'chatAutoReply'),
+        {
+          ...autoReplyConfig,
+          enabled: nextIds.length > 0 ? true : autoReplyConfig.enabled,
+          targetMode: 'selected',
+          selectedUserIds: nextIds,
+          updatedAt: serverTimestamp(),
+          updatedBy: auth.currentUser?.email || 'admin',
+        },
+        { merge: true }
+      );
+      const isNowTargeted = nextIds.includes(targetUid);
+      toast.success(
+        isNowTargeted
+          ? 'Auto Quick Reply enabled for this user'
+          : 'Auto Quick Reply removed for this user'
+      );
+    } catch {
+      toast.error('Failed to update user Quick Reply setting');
+    }
+  };
+
+  const filteredChats = useMemo(() => {
+    const term = chatSearch.trim().toLowerCase();
+    if (!term) return chats;
+    return chats.filter(
+      (c) =>
+        String(c.userName || '')
+          .toLowerCase()
+          .includes(term) ||
+        String(c.userEmail || '')
+          .toLowerCase()
+          .includes(term)
+    );
+  }, [chats, chatSearch]);
+
+  const nonAdminUsers = useMemo(
+    () =>
+      users.filter(
+        (u) =>
+          String(u.role || '').toLowerCase() !== 'admin' &&
+          String(u.email || '').toLowerCase() !== 'goldbrickexchange31@gmail.com'
+      ),
+    [users]
   );
 
+  const filteredQuickReplyUsers = useMemo(() => {
+    const term = quickReplyUserSearch.trim().toLowerCase();
+    if (!term) return nonAdminUsers;
+    return nonAdminUsers.filter(
+      (u) =>
+        String(u.displayName || '')
+          .toLowerCase()
+          .includes(term) ||
+        String(u.email || '')
+          .toLowerCase()
+          .includes(term)
+    );
+  }, [nonAdminUsers, quickReplyUserSearch]);
+
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full text-slate-300 gap-4">
+        <div className="size-10 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+        <span className="text-[10px] font-black uppercase tracking-[0.3em]">
+          Connecting to Support Desk...
+        </span>
+      </div>
+    );
+  }
+
+  const activePresence = selectedChat ? getUserPresence(selectedChat) : null;
+  const activeUserHasQuickReply = selectedChat
+    ? isUserEligibleForAutoReply(autoReplyConfig, selectedChat.id)
+    : false;
+
   return (
-    <div className="flex flex-col md:grid md:grid-cols-3 gap-4 md:gap-8 h-full">
-      <Card className={`bg-card border-border md:col-span-1 overflow-hidden flex flex-col rounded-[1.5rem] md:rounded-[2.5rem] shadow-md border ${selectedChat ? 'hidden md:flex' : 'flex h-[60vh] md:h-full'}`}>
-         <CardHeader className="border-b border-border bg-white/5 p-4 md:p-6 shrink-0">
-            <CardTitle className="text-[10px] font-black tracking-widest uppercase flex items-center gap-3 text-white">
-              <MessageSquare className="size-4 text-primary" /> Active User Chats
+    <div className="flex flex-col md:grid md:grid-cols-3 gap-0 md:gap-6 flex-1 min-h-0 h-full">
+      {/* Conversations List Pane (Full Screen on Mobile when no chat selected) */}
+      <Card
+        className={`bg-card border-border md:col-span-1 overflow-hidden flex-col rounded-none sm:rounded-[2rem] shadow-md border-0 sm:border h-full min-h-0 ${
+          selectedChat ? 'hidden md:flex' : 'flex flex-1'
+        }`}
+      >
+        <CardHeader className="border-b border-border bg-white/5 p-3.5 sm:p-5 space-y-3 shrink-0">
+          <div className="flex items-center justify-between gap-2">
+            <CardTitle className="text-[11px] font-black tracking-widest uppercase flex items-center gap-2 text-white">
+              <MessageSquare className="size-4 text-primary shrink-0" />
+              <span>User Chats</span>
+              {chats.filter((c) => c.unreadByAdmin).length > 0 && (
+                <Badge className="bg-primary text-primary-foreground text-[9px] font-black px-1.5 py-0 rounded-full">
+                  {chats.filter((c) => c.unreadByAdmin).length}
+                </Badge>
+              )}
             </CardTitle>
-         </CardHeader>
-         <CardContent className="p-0 flex-1 overflow-y-auto no-scrollbar">
-            <div className="divide-y divide-border">
-               {chats.map(chat => (
-                  <div 
-                    key={chat.id} 
-                    onClick={() => {
-                        setSelectedChat(chat);
-                        if (chat.unreadByAdmin) {
-                            updateDoc(doc(db, 'chats', chat.id), { unreadByAdmin: false });
-                        }
-                    }}
-                    className={`p-4 md:p-6 cursor-pointer hover:bg-white/5 transition-all border-l-4 ${selectedChat?.id === chat.id ? 'bg-white/5 border-primary' : 'border-transparent'}`}
-                  >
-                     <div className="flex justify-between items-start mb-1 md:mb-2">
-                        <div className="font-black text-sm text-white italic uppercase tracking-tighter">{chat.userName}</div>
-                        {chat.unreadByAdmin && <div className="size-2 rounded-full bg-primary animate-pulse" />}
-                     </div>
-                     <div className="text-[10px] text-slate-400 font-mono truncate font-bold italic">{chat.lastMessage}</div>
-                  </div>
-               ))}
-               {chats.length === 0 && (
-                 <div className="p-20 text-center text-slate-300 italic uppercase font-black text-[10px]">
-                    No messages yet
-                 </div>
-               )}
+
+            {/* Quick Reply Master Control Pill + Settings */}
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={handleToggleAutoReplyMaster}
+                className={`h-8 px-2.5 rounded-xl text-[10px] font-black uppercase tracking-wider flex items-center gap-1.5 border transition-all cursor-pointer ${
+                  autoReplyConfig.enabled
+                    ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/35 hover:bg-emerald-500/25'
+                    : 'bg-white/5 text-white/50 border-white/10 hover:text-white hover:bg-white/10'
+                }`}
+                title="Toggle Auto Quick Reply ON/OFF"
+              >
+                <Zap className={`size-3 ${autoReplyConfig.enabled ? 'fill-emerald-400' : ''}`} />
+                <span>Quick Reply: {autoReplyConfig.enabled ? 'ON' : 'OFF'}</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleOpenQuickReplyConfig}
+                className="size-8 rounded-xl bg-white/5 border border-border text-white/70 hover:text-primary hover:border-primary/40 flex items-center justify-center transition-colors cursor-pointer"
+                title="Configure Quick Reply Prompt & Target Users"
+              >
+                <SlidersHorizontal className="size-3.5" />
+              </button>
             </div>
-         </CardContent>
+          </div>
+
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-3.5 text-white/40" />
+            <Input
+              placeholder="Search user conversations..."
+              value={chatSearch}
+              onChange={(e) => setChatSearch(e.target.value)}
+              className="h-9 pl-9 bg-background border-border rounded-xl text-xs text-white placeholder:text-white/35"
+            />
+          </div>
+        </CardHeader>
+
+        <CardContent className="p-0 flex-1 min-h-0 overflow-y-auto no-scrollbar">
+          <div className="divide-y divide-border">
+            {filteredChats.map((chat) => {
+              const presence = getUserPresence(chat);
+              const isSelected = selectedChatId === chat.id;
+              const isAutoTarget = isUserEligibleForAutoReply(autoReplyConfig, chat.id);
+              const lastIsAdmin = chat.lastSenderId === 'admin';
+              const lastReadByUser = lastIsAdmin && !chat.unreadByUser;
+
+              return (
+                <div
+                  key={chat.id}
+                  onClick={() => {
+                    setSelectedChatId(chat.id);
+                    if (chat.unreadByAdmin) {
+                      updateDoc(doc(db, 'chats', chat.id), { unreadByAdmin: false }).catch(() => {});
+                    }
+                  }}
+                  className={`p-4 cursor-pointer hover:bg-white/5 transition-all border-l-4 ${
+                    isSelected ? 'bg-white/5 border-primary' : 'border-transparent'
+                  }`}
+                >
+                  <div className="flex items-start gap-3">
+                    <div className="relative size-10 rounded-xl bg-primary/15 border border-primary/25 text-primary flex items-center justify-center font-black italic text-sm shrink-0">
+                      {chat.userName?.[0]?.toUpperCase() || 'U'}
+                      {presence.isOnline && (
+                        <span className="absolute -bottom-0.5 -right-0.5 size-2.5 rounded-full bg-green-500 ring-2 ring-card" />
+                      )}
+                    </div>
+
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between gap-2 mb-0.5">
+                        <div className="font-black text-sm text-white italic tracking-tight truncate">
+                          {chat.userName || 'Investor'}
+                        </div>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          {isAutoTarget && (
+                            <span
+                              className="text-[8px] font-black uppercase px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/25"
+                              title="Auto Quick Reply active for this user"
+                            >
+                              Auto
+                            </span>
+                          )}
+                          <span
+                            className={`text-[10px] font-mono ${
+                              presence.isOnline ? 'text-green-400 font-bold' : 'text-white/40'
+                            }`}
+                          >
+                            {presence.shortLabel}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-1 text-[11px] text-slate-400 truncate font-medium">
+                          {lastIsAdmin &&
+                            (lastReadByUser ? (
+                              <CheckCheck className="size-3.5 text-sky-400 shrink-0" />
+                            ) : (
+                              <Check className="size-3.5 text-white/40 shrink-0" />
+                            ))}
+                          <span className="truncate">{chat.lastMessage || 'No messages yet'}</span>
+                        </div>
+                        {chat.unreadByAdmin && (
+                          <span className="size-2.5 rounded-full bg-primary animate-pulse shrink-0" />
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+
+            {filteredChats.length === 0 && (
+              <div className="py-16 px-6 text-center text-white/30 italic uppercase font-black text-[10px] tracking-widest">
+                No conversations match your filter
+              </div>
+            )}
+          </div>
+        </CardContent>
       </Card>
 
-      <Card className={`bg-card border-border md:col-span-2 overflow-hidden flex flex-col rounded-[1.5rem] md:rounded-[2.5rem] shadow-md border relative ${selectedChat ? 'flex h-full md:h-full' : 'hidden md:flex'}`}>
-         {selectedChat ? (
-            <>
-               <CardHeader className="border-b border-border bg-white/5 flex flex-row items-center justify-between p-4 md:p-6 shrink-0">
-                  <div className="flex items-center gap-3 md:gap-4">
-                     <Button 
-                       variant="ghost" 
-                       size="icon" 
-                       className="md:hidden size-8 text-white/50 hover:text-white"
-                       onClick={() => setSelectedChat(null)}
-                     >
-                       <ChevronRight className="rotate-180" />
-                     </Button>
-                     <div className="size-8 md:size-10 rounded-lg md:rounded-xl bg-primary text-primary-foreground flex items-center justify-center font-black italic text-base">
-                        {selectedChat.userName?.substring(0, 1)}
-                     </div>
-                     <div>
-                        <div className="font-black text-white uppercase italic tracking-tighter text-sm md:text-base leading-none mb-1">{selectedChat.userName}</div>
-                        <div className="text-[9px] md:text-[10px] text-slate-400 font-mono font-bold tracking-tight">{selectedChat.userEmail}</div>
-                     </div>
+      {/* Active Conversation Pane (Full-Screen Mobile Optimized) */}
+      <Card
+        className={`bg-card border-border md:col-span-2 overflow-hidden flex-col rounded-none sm:rounded-[2rem] shadow-md border-0 sm:border relative h-full min-h-0 ${
+          selectedChat ? 'flex flex-1' : 'hidden md:flex'
+        }`}
+      >
+        {selectedChat && activePresence ? (
+          <>
+            {/* Conversation Header with Live Last-Active Indicator & Quick Reply Control */}
+            <CardHeader className="border-b border-border bg-white/5 flex flex-row items-center justify-between gap-2 px-3.5 py-3 sm:px-5 sm:py-4 shrink-0">
+              <div className="flex items-center gap-2.5 sm:gap-3.5 min-w-0">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  className="md:hidden size-9 rounded-xl bg-white/5 border border-border text-white/80 hover:text-white shrink-0 cursor-pointer"
+                  onClick={() => setSelectedChatId(null)}
+                  aria-label="Back to chats"
+                >
+                  <ChevronRight className="rotate-180 size-5" />
+                </Button>
+
+                <div className="relative size-10 sm:size-11 rounded-xl bg-primary text-primary-foreground flex items-center justify-center font-black italic text-base shrink-0">
+                  {selectedChat.userName?.substring(0, 1)?.toUpperCase() || 'U'}
+                  <span
+                    className={`absolute -bottom-0.5 -right-0.5 size-3 rounded-full ring-2 ring-card ${
+                      activePresence.isOnline ? 'bg-green-500 animate-pulse' : 'bg-slate-500'
+                    }`}
+                  />
+                </div>
+
+                <div className="min-w-0">
+                  <div className="font-black text-white uppercase italic tracking-tight text-sm sm:text-base leading-tight truncate">
+                    {selectedChat.userName || 'Investor'}
                   </div>
-                  <Badge className="bg-primary/20 text-primary uppercase text-[7px] md:text-[8px] tracking-widest border-none px-2 h-5 md:h-6">Live Link</Badge>
-               </CardHeader>
-               <CardContent className="flex-1 overflow-y-auto p-4 md:p-8 space-y-6 no-scrollbar bg-white/5 scroll-smooth">
-                  {messages.map((m, i) => (
-                     <div key={i} className={`flex ${m.senderId === 'admin' ? 'justify-end' : 'justify-start'}`}>
-                        <div className={`max-w-[92%] md:max-w-[81%] p-4 md:p-6 rounded-[1.5rem] md:rounded-[2rem] text-sm md:text-base ${m.senderId === 'admin' ? 'bg-primary text-primary-foreground font-black rounded-tr-none shadow-sm' : 'bg-background text-white/90 border border-border rounded-tl-none font-medium shadow-sm'}`}>
-                           {m.text}
-                           <div className={`text-[8px] md:text-[10px] mt-3 md:mt-4 opacity-70 font-black tracking-widest ${m.senderId === 'admin' ? 'text-primary-foreground/60 text-right' : 'text-slate-400 font-mono'}`}>
-                             {m.createdAt ? format(m.createdAt.toDate(), 'HH:mm') : '...'}
-                           </div>
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-0.5">
+                    <span
+                      className={`inline-flex items-center gap-1 text-[10px] sm:text-[11px] font-bold ${
+                        activePresence.isOnline ? 'text-green-400' : 'text-amber-300/80'
+                      }`}
+                    >
+                      {activePresence.isOnline ? (
+                        <span className="size-1.5 rounded-full bg-green-400 animate-pulse" />
+                      ) : (
+                        <Clock className="size-3" />
+                      )}
+                      <span>
+                        {activePresence.isOnline && activePresence.inChat
+                          ? 'Online in Chat'
+                          : activePresence.label}
+                      </span>
+                    </span>
+                    {selectedChat.userEmail && (
+                      <span className="hidden sm:inline text-[10px] text-white/40 font-mono truncate">
+                        • {selectedChat.userEmail}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-1.5 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => handleToggleUserForQuickReply(selectedChat.id)}
+                  className={`h-8 px-2.5 rounded-xl text-[9px] sm:text-[10px] font-black uppercase tracking-wider flex items-center gap-1 border transition-all cursor-pointer ${
+                    activeUserHasQuickReply
+                      ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/35 hover:bg-emerald-500/25'
+                      : 'bg-white/5 text-white/50 border-white/10 hover:text-white hover:bg-white/10'
+                  }`}
+                  title={
+                    activeUserHasQuickReply
+                      ? 'Auto Quick Reply active for this user (tap to adjust)'
+                      : 'Enable Auto Quick Reply for this user'
+                  }
+                >
+                  <Zap className={`size-3 ${activeUserHasQuickReply ? 'fill-emerald-400' : ''}`} />
+                  <span className="hidden sm:inline">
+                    {activeUserHasQuickReply ? 'Quick Reply ON' : 'Auto Reply'}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleOpenQuickReplyConfig}
+                  className="size-8 rounded-xl bg-white/5 border border-border text-white/70 hover:text-primary flex items-center justify-center cursor-pointer"
+                  title="Quick Reply Settings & Custom Prompt"
+                >
+                  <SlidersHorizontal className="size-3.5" />
+                </button>
+              </div>
+            </CardHeader>
+
+            {/* Scrollable Messages Feed */}
+            <CardContent className="flex-1 min-h-0 overflow-y-auto px-3.5 py-4 sm:p-6 space-y-3.5 no-scrollbar bg-black/20 scroll-smooth">
+              {messages.map((m, i) => {
+                const isAdminMsg = m.senderId === 'admin';
+                const msgDate = toDateSafe(m.createdAt);
+                const readAtDate = toDateSafe(m.readAt);
+                const isSeen = isAdminMsg && m.readByUser === true;
+
+                return (
+                  <div
+                    key={m.id || i}
+                    className={`flex ${isAdminMsg ? 'justify-end' : 'justify-start'}`}
+                  >
+                    <div
+                      className={`max-w-[85%] sm:max-w-[78%] px-4 py-3 rounded-2xl text-sm sm:text-[15px] shadow-sm ${
+                        isAdminMsg
+                          ? 'bg-primary text-primary-foreground font-semibold rounded-tr-sm'
+                          : 'bg-background text-white/95 border border-border rounded-tl-sm font-normal'
+                      }`}
+                    >
+                      {isAdminMsg && m.isAutoReply && (
+                        <div className="inline-flex items-center gap-1 text-[9px] font-black uppercase tracking-wider bg-black/20 text-primary-foreground/90 px-2 py-0.5 rounded-full mb-1.5">
+                          <Zap className="size-2.5" />
+                          Auto Quick Reply
                         </div>
-                     </div>
-                  ))}
-                  <div ref={scrollRef} />
-               </CardContent>
-               <div className="p-4 md:p-8 border-t border-border bg-white/5 shrink-0 sticky bottom-0 z-10">
-                  <form onSubmit={handleSend} className="flex gap-2 md:gap-4">
-                     <Input 
-                        placeholder="Type reply..." 
-                        className="bg-background border-border h-12 md:h-14 text-sm rounded-xl px-4 md:px-6 focus:border-primary font-bold text-white placeholder:text-slate-200 shadow-sm"
-                        value={input}
-                        onChange={(e) => setInput(e.target.value)}
-                     />
-                     <Button type="submit" size="icon" className="size-12 md:size-14 rounded-xl shrink-0 bg-primary text-primary-foreground font-black shadow-lg shadow-primary/20 hover:scale-105 transition-all">
-                        <Share2 className="size-5 md:size-6" />
-                     </Button>
-                  </form>
-               </div>
-            </>
-         ) : (
-            <div className="h-full flex flex-col items-center justify-center text-slate-300 gap-6">
-               <MessageSquare className="size-16 opacity-10" />
-               <div className="font-black text-[10px] uppercase tracking-[0.4em] italic animate-pulse">Select a chat to reply</div>
+                      )}
+                      <p className="leading-relaxed whitespace-pre-wrap break-words">{m.text}</p>
+                      <div
+                        className={`flex items-center justify-end gap-1.5 text-[10px] mt-1.5 font-mono ${
+                          isAdminMsg ? 'text-primary-foreground/75' : 'text-white/40'
+                        }`}
+                      >
+                        <span>{msgDate ? format(msgDate, 'HH:mm') : '...'}</span>
+                        {isAdminMsg &&
+                          (isSeen ? (
+                            <span
+                              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-black/25 text-sky-300 font-sans font-bold text-[9px]"
+                              title={
+                                readAtDate
+                                  ? `Viewed by user at ${format(readAtDate, 'HH:mm')}`
+                                  : 'Viewed by user'
+                              }
+                            >
+                              <CheckCheck className="size-3.5" />
+                            </span>
+                          ) : (
+                            <span
+                              className="inline-flex items-center text-primary-foreground/65"
+                              title="Delivered (not yet viewed by user)"
+                            >
+                              <Check className="size-3.5" />
+                            </span>
+                          ))}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+              <div ref={scrollRef} />
+            </CardContent>
+
+            {/* Sticky Bottom Composer */}
+            <div className="p-3 sm:p-4 border-t border-border bg-card shrink-0">
+              <form onSubmit={handleSend} className="flex items-center gap-2 sm:gap-3">
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="outline"
+                  onClick={() => {
+                    const promptText = autoReplyConfig.message?.trim() || QUICK_REPLY_PRESETS[0].text;
+                    setInput(promptText);
+                  }}
+                  title="Insert saved Quick Reply prompt into message box"
+                  className="size-11 sm:size-12 rounded-xl border-border bg-white/5 text-amber-400 hover:bg-amber-500/15 hover:text-amber-300 shrink-0 cursor-pointer"
+                >
+                  <Zap className="size-4 sm:size-5" />
+                </Button>
+                <Input
+                  placeholder="Type your reply..."
+                  className="bg-background border-border h-11 sm:h-12 text-sm sm:text-base rounded-xl px-4 focus:border-primary font-medium text-white placeholder:text-white/30 shadow-sm flex-1"
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                />
+                <Button
+                  type="submit"
+                  disabled={!input.trim() || sending}
+                  size="icon"
+                  className="size-11 sm:size-12 rounded-xl shrink-0 bg-primary text-primary-foreground font-black shadow-lg shadow-primary/20 hover:scale-105 transition-all cursor-pointer disabled:opacity-50"
+                >
+                  <Send className="size-4 sm:size-5" />
+                </Button>
+              </form>
             </div>
-         )}
+          </>
+        ) : (
+          <div className="h-full flex flex-col items-center justify-center text-slate-300 gap-4 p-8 text-center">
+            <MessageSquare className="size-14 opacity-15 text-primary" />
+            <div className="font-black text-xs uppercase tracking-[0.3em] italic text-white/50">
+              Select a user chat to reply
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleOpenQuickReplyConfig}
+              className="rounded-xl border-primary/30 text-primary hover:bg-primary/10 text-xs font-black uppercase tracking-wider gap-2 cursor-pointer"
+            >
+              <Zap className="size-4" />
+              Configure Auto Quick Reply
+            </Button>
+          </div>
+        )}
       </Card>
+
+      {/* Quick Reply / Auto-Responder Configuration Modal */}
+      <Dialog open={isQuickReplyModalOpen} onOpenChange={setIsQuickReplyModalOpen}>
+        <DialogContent className="bg-card border-primary/30 text-white sm:max-w-xl rounded-3xl p-5 sm:p-7 max-h-[90dvh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="text-lg sm:text-xl font-black italic uppercase tracking-tight text-white flex items-center gap-2">
+              <Zap className="size-5 text-primary shrink-0" />
+              Automated Quick Reply Settings
+            </DialogTitle>
+            <DialogDescription className="text-xs text-white/60 leading-relaxed">
+              Automatically send a professional acknowledgment when users message support—with your custom prompt and user targeting.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-5 py-2">
+            {/* Master Enable / Disable Toggle */}
+            <div className="flex items-center justify-between gap-4 p-4 rounded-2xl bg-background/80 border border-border">
+              <div>
+                <p className="text-xs font-black uppercase tracking-wider text-white">
+                  Auto Quick Reply Status
+                </p>
+                <p className="text-[11px] text-white/50 mt-0.5">
+                  {draftAutoReply.enabled
+                    ? 'Active: Matching users automatically receive this reply.'
+                    : 'Paused: No automatic replies are sent.'}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() =>
+                  setDraftAutoReply((prev) => ({ ...prev, enabled: !prev.enabled }))
+                }
+                className={`h-10 px-4 rounded-xl text-xs font-black uppercase tracking-wider transition-all cursor-pointer shrink-0 ${
+                  draftAutoReply.enabled
+                    ? 'bg-emerald-500 text-black shadow-lg shadow-emerald-500/20'
+                    : 'bg-white/10 text-white/60 hover:text-white'
+                }`}
+              >
+                {draftAutoReply.enabled ? 'ON' : 'OFF'}
+              </button>
+            </div>
+
+            {/* Quick Template Presets */}
+            <div className="space-y-2">
+              <Label className="text-[10px] font-black uppercase tracking-widest text-white/50">
+                Professional Templates (Tap to Fill)
+              </Label>
+              <div className="flex flex-wrap gap-2">
+                {QUICK_REPLY_PRESETS.map((preset) => (
+                  <button
+                    key={preset.id}
+                    type="button"
+                    onClick={() =>
+                      setDraftAutoReply((prev) => ({ ...prev, message: preset.text }))
+                    }
+                    className="text-[10px] font-black uppercase tracking-wider px-3 py-1.5 rounded-xl bg-white/5 border border-border text-primary hover:bg-primary/15 transition-colors cursor-pointer"
+                  >
+                    + {preset.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Custom Prompt Textarea */}
+            <div className="space-y-2">
+              <Label className="text-[10px] font-black uppercase tracking-widest text-white/50">
+                Custom Quick Reply Prompt
+              </Label>
+              <textarea
+                rows={4}
+                value={draftAutoReply.message}
+                onChange={(e) =>
+                  setDraftAutoReply((prev) => ({ ...prev, message: e.target.value }))
+                }
+                placeholder="Enter the automatic reply message users will receive..."
+                className="w-full rounded-2xl bg-background border border-border p-3.5 text-sm text-white placeholder:text-white/30 focus:outline-none focus:ring-1 focus:ring-primary/50"
+              />
+            </div>
+
+            {/* Anti-Spam Cooldown */}
+            <div className="space-y-2">
+              <Label className="text-[10px] font-black uppercase tracking-widest text-white/50">
+                Frequency / Anti-Spam Cooldown
+              </Label>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                {[
+                  { label: 'Every Message', value: 0 },
+                  { label: '5 Mins (Std)', value: 5 },
+                  { label: '15 Mins', value: 15 },
+                  { label: '1 Hour', value: 60 },
+                ].map((opt) => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() =>
+                      setDraftAutoReply((prev) => ({ ...prev, cooldownMinutes: opt.value }))
+                    }
+                    className={`h-9 rounded-xl text-[10px] font-black uppercase tracking-wider border transition-all cursor-pointer ${
+                      draftAutoReply.cooldownMinutes === opt.value
+                        ? 'bg-primary text-primary-foreground border-primary'
+                        : 'bg-background text-white/60 border-border hover:text-white'
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Target Users Mode */}
+            <div className="space-y-3">
+              <Label className="text-[10px] font-black uppercase tracking-widest text-white/50">
+                Apply Quick Reply To
+              </Label>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setDraftAutoReply((prev) => ({ ...prev, targetMode: 'all' }))
+                  }
+                  className={`h-11 rounded-xl text-xs font-black uppercase tracking-wider border transition-all cursor-pointer ${
+                    draftAutoReply.targetMode === 'all'
+                      ? 'bg-primary text-primary-foreground border-primary shadow-md'
+                      : 'bg-background text-white/60 border-border hover:text-white'
+                  }`}
+                >
+                  All Users
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    setDraftAutoReply((prev) => ({ ...prev, targetMode: 'selected' }))
+                  }
+                  className={`h-11 rounded-xl text-xs font-black uppercase tracking-wider border transition-all cursor-pointer ${
+                    draftAutoReply.targetMode === 'selected'
+                      ? 'bg-primary text-primary-foreground border-primary shadow-md'
+                      : 'bg-background text-white/60 border-border hover:text-white'
+                  }`}
+                >
+                  Selected Users ({draftAutoReply.selectedUserIds.length})
+                </button>
+              </div>
+
+              {draftAutoReply.targetMode === 'selected' && (
+                <div className="rounded-2xl bg-background/80 border border-border p-3 space-y-2.5">
+                  <div className="flex items-center gap-2">
+                    <div className="relative flex-1">
+                      <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-3.5 text-white/40" />
+                      <Input
+                        placeholder="Filter users by name or email..."
+                        value={quickReplyUserSearch}
+                        onChange={(e) => setQuickReplyUserSearch(e.target.value)}
+                        className="h-9 pl-8 bg-card border-border text-xs text-white rounded-xl"
+                      />
+                    </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() =>
+                        setDraftAutoReply((prev) => ({
+                          ...prev,
+                          selectedUserIds: nonAdminUsers.map((u) => u.uid || u.id),
+                        }))
+                      }
+                      className="h-9 text-[10px] font-black uppercase text-primary cursor-pointer"
+                    >
+                      All
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() =>
+                        setDraftAutoReply((prev) => ({ ...prev, selectedUserIds: [] }))
+                      }
+                      className="h-9 text-[10px] font-black uppercase text-white/50 cursor-pointer"
+                    >
+                      Clear
+                    </Button>
+                  </div>
+
+                  <div className="max-h-48 overflow-y-auto divide-y divide-border/60 pr-1">
+                    {filteredQuickReplyUsers.map((u) => {
+                      const uid = u.uid || u.id;
+                      const checked = draftAutoReply.selectedUserIds.includes(uid);
+                      return (
+                        <label
+                          key={uid}
+                          className="flex items-center justify-between gap-3 py-2.5 px-2 rounded-lg hover:bg-white/5 cursor-pointer"
+                        >
+                          <div className="min-w-0">
+                            <p className="text-xs font-bold text-white truncate">
+                              {u.displayName || 'Investor'}
+                            </p>
+                            <p className="text-[10px] font-mono text-white/45 truncate">
+                              {u.email}
+                            </p>
+                          </div>
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => {
+                              setDraftAutoReply((prev) => ({
+                                ...prev,
+                                selectedUserIds: checked
+                                  ? prev.selectedUserIds.filter((id) => id !== uid)
+                                  : [...prev.selectedUserIds, uid],
+                              }));
+                            }}
+                            className="size-4 accent-amber-500 rounded cursor-pointer shrink-0"
+                          />
+                        </label>
+                      );
+                    })}
+                    {filteredQuickReplyUsers.length === 0 && (
+                      <p className="py-6 text-center text-[11px] text-white/40">
+                        No matching users found
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          <DialogFooter className="gap-2 sm:gap-2 pt-2">
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => setIsQuickReplyModalOpen(false)}
+              className="rounded-xl text-white/60 hover:text-white cursor-pointer"
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              disabled={savingAutoReply}
+              onClick={handleSaveQuickReplyConfig}
+              className="bg-primary text-primary-foreground font-black uppercase text-xs tracking-wider rounded-xl px-6 cursor-pointer gap-2"
+            >
+              {savingAutoReply ? (
+                <>
+                  <Loader2 className="size-4 animate-spin" />
+                  Saving...
+                </>
+              ) : (
+                <>
+                  <Check className="size-4" />
+                  Save Quick Reply
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

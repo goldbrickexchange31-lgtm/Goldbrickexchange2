@@ -68,22 +68,26 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const adminEmails = ['goldbrickexchange31@gmail.com'];
   const isAdmin = userData?.role === 'admin' || (auth.currentUser?.email && adminEmails.includes(auth.currentUser.email));
 
+  const isSupportRoute = location.pathname === '/support';
+
   return (
-    <div className="min-h-screen bg-background text-white flex flex-col md:flex-row pb-20 md:pb-0 font-sans">
+    <div className={`${isSupportRoute ? 'h-[100dvh] overflow-hidden pb-16 md:pb-0' : 'min-h-screen pb-20 md:pb-0'} bg-background text-white flex flex-col md:flex-row font-sans`}>
       <IOSInstallGuide 
         isOpen={showIOSInstructions} 
         onClose={() => setShowIOSInstructions(false)} 
       />
 
-      {/* Floating Support Button */}
-      <Link 
-        to="/support"
-        className="fixed bottom-24 right-6 z-[60] md:bottom-8 md:right-8 bg-primary w-14 h-14 rounded-full flex items-center justify-center shadow-2xl shadow-primary/30 hover:scale-110 transition-transform cursor-pointer"
-      >
-        <MessageSquare className="text-primary-foreground w-7 h-7" />
-      </Link>
+      {/* Floating Support Button (hidden on /support so it never overlaps mobile composer) */}
+      {!isSupportRoute && (
+        <Link 
+          to="/support"
+          className="fixed bottom-24 right-6 z-[60] md:bottom-8 md:right-8 bg-primary w-14 h-14 rounded-full flex items-center justify-center shadow-2xl shadow-primary/30 hover:scale-110 transition-transform cursor-pointer"
+        >
+          <MessageSquare className="text-primary-foreground w-7 h-7" />
+        </Link>
+      )}
       {/* Mobile Top Header */}
-      <header className="md:hidden flex items-center justify-between p-4 border-b border-border bg-background sticky top-0 z-50">
+      <header className="md:hidden h-16 shrink-0 flex items-center justify-between px-4 border-b border-border bg-background sticky top-0 z-50">
         <Link to="/dashboard" className="flex items-center gap-2">
           <Logo className="h-8" />
         </Link>
@@ -183,9 +187,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       </aside>
 
       {/* Main Content Area */}
-      <main className="flex-1 overflow-y-auto no-scrollbar">
+      <main className={`flex-1 flex flex-col min-w-0 ${isSupportRoute ? 'min-h-0 overflow-hidden' : 'overflow-y-auto no-scrollbar'}`}>
         {/* Desktop Header */}
-        <header className="hidden md:flex items-center justify-between p-6 border-b border-border bg-background sticky top-0 z-30">
+        <header className="hidden md:flex shrink-0 items-center justify-between p-6 border-b border-border bg-background sticky top-0 z-30">
           <div className="flex items-center gap-4">
              <p className="text-[10px] font-black uppercase text-white/20 tracking-[0.2em] italic">GoldBrick Protocol v2.4</p>
           </div>
@@ -217,7 +221,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             </button>
           </div>
         </header>
-        <div className="max-w-6xl mx-auto p-4 md:p-8">
+        <div className={isSupportRoute ? 'flex-1 min-h-0 w-full max-w-6xl mx-auto p-0 md:p-6 flex flex-col overflow-hidden' : 'max-w-6xl mx-auto p-4 md:p-8 w-full'}>
           {children}
         </div>
       </main>
