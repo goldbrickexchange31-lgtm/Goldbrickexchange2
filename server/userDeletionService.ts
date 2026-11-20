@@ -131,26 +131,38 @@ export async function deleteUserAccountCompletely(options: {
   try {
     authUser = await adminSdk.auth().getUser(uid);
   } catch (err: any) {
+    const errMsg = String(err?.message || '');
     if (err?.code === 'auth/user-not-found') {
       authExists = false;
+    } else if (errMsg.includes('Could not load the default credentials')) {
+      return {
+        ok: false,
+        status: 500,
+        code: 'missing-service-account',
+        error:
+          'Firebase Admin credentials are not configured on this server. Add FIREBASE_SERVICE_ACCOUNT_KEY to your server environment variables to enable permanent user deletion.',
+      };
     } else if (
       err?.code === 'auth/insufficient-permission' ||
-      err?.message?.includes('PERMISSION_DENIED') ||
-      err?.message?.includes('Could not load the default credentials')
+      err?.code === 'auth/internal-error' ||
+      err?.code === 'app/invalid-credential' ||
+      errMsg.includes('PERMISSION_DENIED') ||
+      errMsg.includes('USER_PROJECT_DENIED') ||
+      errMsg.includes('SERVICE_DISABLED')
     ) {
       return {
         ok: false,
         status: 500,
         code: 'admin-iam-required',
         error:
-          'Firebase Admin SDK does not have Auth management permissions yet. Grant roles/firebaseauth.admin and roles/datastore.user to your preview service account in Google Cloud IAM.',
+          'Firebase Admin Auth permission missing on project goldbrick-cd2b5. Grant roles/firebaseauth.admin and roles/serviceusage.serviceUsageConsumer to your service account in Google Cloud IAM, or set FIREBASE_SERVICE_ACCOUNT_KEY.',
       };
     } else {
       return {
         ok: false,
         status: 500,
         code: err?.code || 'auth-lookup-failed',
-        error: err?.message || 'Failed to inspect Firebase Authentication account.',
+        error: errMsg || 'Failed to inspect Firebase Authentication account.',
       };
     }
   }
@@ -302,14 +314,29 @@ export async function deleteUserAccountCompletely(options: {
       await adminSdk.auth().deleteUser(uid);
       authDeleted = true;
     } catch (err: any) {
+      const errMsg = String(err?.message || '');
       if (err?.code === 'auth/user-not-found') {
         authDeleted = true;
+      } else if (
+        err?.code === 'auth/insufficient-permission' ||
+        err?.code === 'auth/internal-error' ||
+        errMsg.includes('PERMISSION_DENIED') ||
+        errMsg.includes('USER_PROJECT_DENIED') ||
+        errMsg.includes('SERVICE_DISABLED')
+      ) {
+        return {
+          ok: false,
+          status: 500,
+          code: 'admin-iam-required',
+          error:
+            'Firebase Admin Auth permission missing on project goldbrick-cd2b5. Grant roles/firebaseauth.admin and roles/serviceusage.serviceUsageConsumer to your service account in Google Cloud IAM, or set FIREBASE_SERVICE_ACCOUNT_KEY.',
+        };
       } else {
         return {
           ok: false,
           status: 500,
           code: err?.code || 'auth-delete-failed',
-          error: `Failed to delete Firebase Authentication user: ${err?.message || 'Unknown Auth error'}`,
+          error: `Failed to delete Firebase Authentication user: ${errMsg || 'Unknown Auth error'}`,
         };
       }
     }

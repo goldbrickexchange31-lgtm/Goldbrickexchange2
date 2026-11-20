@@ -1,36 +1,82 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { toast } from 'sonner';
-import { ShieldAlert } from 'lucide-react';
-import { signInWithEmailAndPassword } from 'firebase/auth';
-import { auth } from '../lib/firebase';
+import { ShieldAlert, Eye, EyeOff } from 'lucide-react';
+import { signInWithEmailAndPassword, signOut } from 'firebase/auth';
+import { doc, getDoc } from 'firebase/firestore';
+import { auth, db } from '../lib/firebase';
+import { useAuth } from '../lib/AuthContext';
 
 const ADMIN_EMAILS = ['goldbrickexchange31@gmail.com'];
 
 export default function AdminLogin() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
+  const { user, userData, loading: authLoading } = useAuth();
+
+  // If already signed in as an admin, navigate straight to the command center
+  useEffect(() => {
+    if (authLoading || !user) return;
+    const normalized = (user.email || '').trim().toLowerCase();
+    const role = String(userData?.role || '').trim().toLowerCase();
+    if (ADMIN_EMAILS.includes(normalized) || role === 'admin' || role === 'super_admin') {
+      navigate('/admin', { replace: true });
+    }
+  }, [user, userData, authLoading, navigate]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!ADMIN_EMAILS.includes(email)) {
-      toast.error('Unauthorized access attempt');
+    const cleanEmail = email.trim().toLowerCase();
+    if (!cleanEmail || !password) {
+      toast.error('Please enter your admin email and password');
       return;
     }
 
     setLoading(true);
     try {
-      await signInWithEmailAndPassword(auth, email, password);
+      const cred = await signInWithEmailAndPassword(auth, cleanEmail, password);
+      const signedInEmail = (cred.user.email || cleanEmail).trim().toLowerCase();
+
+      let isAuthorized = ADMIN_EMAILS.includes(signedInEmail);
+      if (!isAuthorized) {
+        try {
+          const userSnap = await getDoc(doc(db, 'users', cred.user.uid));
+          const role = String(userSnap.data()?.role || '').trim().toLowerCase();
+          if (role === 'admin' || role === 'super_admin') {
+            isAuthorized = true;
+          }
+        } catch (err) {
+          console.warn('[ADMIN-LOGIN] Role check error:', err);
+        }
+      }
+
+      if (!isAuthorized) {
+        await signOut(auth).catch(() => {});
+        toast.error('Unauthorized access attempt. This portal is restricted to administrators.');
+        return;
+      }
+
       toast.success('Admin access granted');
-      navigate('/admin');
+      navigate('/admin', { replace: true });
     } catch (error: any) {
-      toast.error(error.message || 'Login failed');
+      let msg = error?.message || 'Login failed';
+      if (
+        error?.code === 'auth/invalid-credential' ||
+        error?.code === 'auth/wrong-password' ||
+        error?.code === 'auth/user-not-found'
+      ) {
+        msg = 'Invalid admin email or security password.';
+      } else if (error?.code === 'auth/too-many-requests') {
+        msg = 'Too many failed attempts. Please wait a few minutes and try again.';
+      }
+      toast.error(msg);
     } finally {
       setLoading(false);
     }
@@ -46,7 +92,7 @@ export default function AdminLogin() {
           <CardTitle className="text-3xl font-black italic vibrant-text uppercase tracking-tighter">ADMIN PORTAL</CardTitle>
           <p className="text-white/40 font-bold text-[10px] uppercase tracking-widest mt-2">Secure authorization required</p>
         </CardHeader>
-        <CardContent className="p-10 pt-10">
+        <CardContent className="p-6 sm:p-10 pt-8 sm:pt-10">
           <form onSubmit={handleLogin} className="space-y-6">
             <div className="space-y-3">
               <Label className="text-[10px] font-black uppercase text-white/40 tracking-widest">Restricted Email</Label>
@@ -61,18 +107,28 @@ export default function AdminLogin() {
             </div>
             <div className="space-y-3">
               <Label className="text-[10px] font-black uppercase text-white/40 tracking-widest">Security Password</Label>
-              <Input 
-                type="password" 
-                placeholder="••••••••" 
-                className="bg-background border-border h-14 rounded-2xl px-6 text-white focus:ring-1 focus:ring-primary/40 font-bold placeholder:text-white/20"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-              />
+              <div className="relative">
+                <Input 
+                  type={showPassword ? 'text' : 'password'} 
+                  placeholder="••••••••" 
+                  className="bg-background border-border h-14 rounded-2xl px-6 pr-12 text-white focus:ring-1 focus:ring-primary/40 font-bold placeholder:text-white/20"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-4 top-1/2 -translate-y-1/2 text-white/40 hover:text-white transition-colors cursor-pointer"
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                >
+                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                </button>
+              </div>
             </div>
             <Button 
               type="submit" 
-              className="w-full bg-primary text-primary-foreground font-black h-16 rounded-2xl shadow-lg shadow-primary/20 hover:scale-[1.02] transition-all uppercase text-sm"
+              className="w-full bg-primary text-primary-foreground font-black h-16 rounded-2xl shadow-lg shadow-primary/20 hover:scale-[1.02] transition-all uppercase text-sm cursor-pointer"
               disabled={loading}
             >
               {loading ? 'Authorizing...' : 'Access Command Center'}

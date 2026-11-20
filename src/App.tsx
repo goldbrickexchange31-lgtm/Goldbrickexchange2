@@ -25,18 +25,38 @@ import VisitorTracker from './components/VisitorTracker';
 import { LiveActivityNotification } from './components/LiveActivityNotification';
 import { GoldbrickLoadingScreen } from './components/GoldbrickLoadingScreen';
 import { PageTransitionLoader } from './components/PageTransitionLoader';
+import { auth } from './lib/firebase';
 
 const ProtectedRoute = ({ children, adminOnly = false }: { children: React.ReactNode, adminOnly?: boolean }) => {
   const { user, userData, loading } = useAuth();
   const ADMIN_EMAILS = ['goldbrickexchange31@gmail.com'];
 
-  if (loading) {
+  if (
+    loading ||
+    (auth.currentUser && (!user || auth.currentUser.uid !== user.uid))
+  ) {
     return <GoldbrickLoadingScreen subtitle="VERIFYING SECURITY CREDENTIALS..." />;
   }
-  if (!user) return <Navigate to="/login" />;
-  
-  const isUserAdmin = userData?.role === 'admin' || (user?.email && ADMIN_EMAILS.includes(user.email));
-  if (adminOnly && !isUserAdmin) return <Navigate to="/dashboard" />;
+
+  const activeUser = user || auth.currentUser;
+  if (!activeUser) {
+    return <Navigate to={adminOnly ? "/admin/login" : "/login"} replace />;
+  }
+
+  const normalizedEmail = (activeUser.email || '').trim().toLowerCase();
+  const isEmailAdmin = ADMIN_EMAILS.includes(normalizedEmail);
+
+  // If userData belongs to a previous account or is still loading for a role-based admin, wait briefly
+  if (adminOnly && !isEmailAdmin && (!userData || userData.uid !== activeUser.uid)) {
+    return <GoldbrickLoadingScreen subtitle="VERIFYING ADMIN PERMISSIONS..." />;
+  }
+
+  const role = String(userData?.role || '').trim().toLowerCase();
+  const isUserAdmin = isEmailAdmin || role === 'admin' || role === 'super_admin';
+
+  if (adminOnly && !isUserAdmin) {
+    return <Navigate to="/dashboard" replace />;
+  }
 
   return <>{children}</>;
 };

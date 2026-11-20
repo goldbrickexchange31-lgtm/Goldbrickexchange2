@@ -58,6 +58,10 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         return;
       }
 
+      // Immediately enter loading state and set current user so ProtectedRoute never prematurely redirects to /login during async profile hydration
+      setLoading(true);
+      setUser(u);
+
       // Verify the Firebase Auth session has not been deleted or revoked on the server
       try {
         await u.reload();
@@ -76,7 +80,6 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       }
 
       if (cancelled) return;
-      setUser(u);
 
       const userDocRef = doc(db, 'users', u.uid);
       let hadProfileInSession = false;
@@ -86,6 +89,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         const snap = await getDoc(userDocRef);
         if (snap.exists()) {
           hadProfileInSession = true;
+          if (!cancelled) {
+            setUserData(snap.data() as UserData);
+          }
         } else {
           // Re-verify Auth record still exists before initializing a missing profile
           try {
@@ -93,29 +99,32 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
           } catch (recheckErr: any) {
             if (REVOKED_OR_DELETED_CODES.has(recheckErr?.code)) {
               await signOut(auth).catch(() => {});
-              setUser(null);
-              setUserData(null);
-              setLoading(false);
+              if (!cancelled) {
+                setUser(null);
+                setUserData(null);
+                setLoading(false);
+              }
               return;
             }
           }
 
           const adminEmails = ['goldbrickexchange31@gmail.com'];
           const myReferralCode = Math.random().toString(36).substring(2, 8).toUpperCase();
-          await setDoc(userDocRef, {
+          const newProfile = {
             uid: u.uid,
-            email: u.email,
+            email: u.email || '',
             displayName: u.displayName || u.email?.split('@')[0] || 'User',
             balance: 0,
             totalProfit: 0,
             totalInvested: 0,
             referralEarnings: 0,
             referralCode: myReferralCode,
-            role: adminEmails.includes(u.email || '') ? 'admin' : 'user',
+            role: adminEmails.includes((u.email || '').toLowerCase()) ? 'admin' : 'user',
             status: 'active',
             accountStatus: 'active',
             createdAt: serverTimestamp(),
-          });
+          };
+          await setDoc(userDocRef, newProfile);
           hadProfileInSession = true;
         }
       } catch (e) {
@@ -124,22 +133,29 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
       if (cancelled) return;
 
-      unsubDoc = onSnapshot(userDocRef, async (docSnap) => {
-        if (docSnap.exists()) {
-          hadProfileInSession = true;
-          setUserData(docSnap.data() as UserData);
-          setLoading(false);
-        } else if (hadProfileInSession) {
-          // Account profile was deleted by admin while logged in: immediately terminate session
-          toast.error('Your account session has ended or your account was removed.');
-          await signOut(auth).catch(() => {});
-          setUser(null);
-          setUserData(null);
-          setLoading(false);
-        } else {
+      unsubDoc = onSnapshot(
+        userDocRef,
+        async (docSnap) => {
+          if (docSnap.exists()) {
+            hadProfileInSession = true;
+            setUserData(docSnap.data() as UserData);
+            setLoading(false);
+          } else if (hadProfileInSession) {
+            // Account profile was deleted by admin while logged in: immediately terminate session
+            toast.error('Your account session has ended or your account was removed.');
+            await signOut(auth).catch(() => {});
+            setUser(null);
+            setUserData(null);
+            setLoading(false);
+          } else {
+            setLoading(false);
+          }
+        },
+        (err) => {
+          console.warn('[AUTH] User profile snapshot notice:', err?.message || err);
           setLoading(false);
         }
-      });
+      );
     });
 
     return () => {

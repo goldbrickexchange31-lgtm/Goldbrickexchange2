@@ -835,17 +835,27 @@ export default function AdminDashboard() {
       }
 
       const idToken = await currentUser.getIdToken(true);
-      const res = await fetch(`/api/admin/users/${encodeURIComponent(targetUid)}`, {
-        method: 'DELETE',
+      const res = await fetch(`/api/admin/users/${encodeURIComponent(targetUid)}/delete`, {
+        method: 'POST',
         headers: {
           'Authorization': `Bearer ${idToken}`,
           'Content-Type': 'application/json',
         },
+        body: JSON.stringify({ targetUid }),
       });
 
-      const data = await res.json().catch(() => ({}));
+      const rawText = await res.text();
+      let data: any = {};
+      try {
+        data = rawText ? JSON.parse(rawText) : {};
+      } catch {
+        data = { error: rawText?.slice(0, 200) || `Server error (${res.status})` };
+      }
+
       if (!res.ok || !data?.success) {
-        toast.error(data?.error || 'Failed to delete user account.');
+        toast.error(data?.error || `Failed to delete user account (HTTP ${res.status}).`, {
+          duration: 8000,
+        });
         return;
       }
 
@@ -1417,7 +1427,101 @@ export default function AdminDashboard() {
       </div>
 
                <Card className="bg-card border-border rounded-3xl overflow-hidden shadow-md">
-                  <div className="overflow-x-auto">
+                  {/* Mobile Card View (avoids horizontal scroll hiding Delete button on phones) */}
+                  <div className="md:hidden divide-y divide-border">
+                     {filteredUsers.map(u => (
+                       <div key={u.id} className="p-5 space-y-4">
+                          <div className="flex items-start justify-between gap-3">
+                             <div className="flex items-center gap-3 min-w-0">
+                                <div className="size-11 rounded-2xl bg-white/5 border border-border flex items-center justify-center font-black italic text-primary text-lg shrink-0">
+                                   {u.displayName?.[0]?.toUpperCase() || 'U'}
+                                </div>
+                                <div className="min-w-0">
+                                   <p className="font-black text-white italic text-sm truncate">{u.displayName}</p>
+                                   <p className="text-[11px] text-white/50 font-mono font-bold truncate">{u.email}</p>
+                                   <p className="text-[10px] font-mono text-white/30 mt-0.5">REF: {u.referralCode || 'NONE'}</p>
+                                </div>
+                             </div>
+                             <div className="text-right shrink-0">
+                                <p className="text-lg font-black italic text-white font-mono">${u.balance?.toLocaleString() || '0'}</p>
+                                <div className="flex items-center justify-end gap-1.5 mt-1">
+                                   {u.accountStatus === 'inactive' ? (
+                                     <Badge className="uppercase text-[8px] font-black px-2 py-0.5 rounded-md border border-amber-500/30 bg-amber-500/15 text-amber-400">
+                                        INACTIVE
+                                     </Badge>
+                                   ) : (
+                                     <Badge className="uppercase text-[8px] font-black px-2 py-0.5 rounded-md border border-green-500/30 bg-green-500/15 text-green-400">
+                                        ACTIVE
+                                     </Badge>
+                                   )}
+                                   <Badge className={`uppercase text-[8px] font-black px-2 py-0.5 rounded-md border-none ${u.status === 'active' ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'}`}>
+                                      {u.status}
+                                   </Badge>
+                                </div>
+                             </div>
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-2 pt-1">
+                             <Button size="sm" variant="outline" className="h-9 border-border bg-background text-[10px] font-black uppercase rounded-xl hover:bg-white/5 text-white cursor-pointer" onClick={() => handleModifyBalance(u)}>
+                                Set Balance
+                             </Button>
+                             {u.accountStatus === 'inactive' ? (
+                               <Button
+                                 size="sm"
+                                 className="h-9 bg-green-600/20 text-green-400 border border-green-500/30 hover:bg-green-600 hover:text-white text-[10px] font-black uppercase rounded-xl px-3 transition-colors cursor-pointer"
+                                 onClick={() => handleDirectActivateUser(u)}
+                               >
+                                  Activate
+                               </Button>
+                             ) : (
+                               <Button
+                                 size="sm"
+                                 variant="outline"
+                                 className="h-9 bg-amber-500/10 text-amber-400 border border-amber-500/30 hover:bg-amber-500 hover:text-white text-[10px] font-black uppercase rounded-xl px-3 transition-colors cursor-pointer"
+                                 onClick={() => setDeactivatingUser(u)}
+                               >
+                                  Deactivate
+                               </Button>
+                             )}
+                             <Button
+                               size="icon"
+                               variant="ghost"
+                               className={`size-9 rounded-xl transition-all cursor-pointer ${u.status === 'active' ? 'text-red-500 hover:bg-red-500/10' : 'text-green-500 hover:bg-green-500/10'}`}
+                               onClick={() => handleToggleUserStatus(u)}
+                               title={u.status === 'active' ? 'Suspend Account' : 'Unsuspend Account'}
+                             >
+                                <ShieldAlert size={18} />
+                             </Button>
+                             {isProtectedAdminUser(u) ? (
+                               <Badge className="uppercase text-[9px] font-black px-2.5 py-1 rounded-lg border border-primary/30 bg-primary/10 text-primary flex items-center gap-1 ml-auto">
+                                 <ShieldCheck size={12} />
+                                 Admin
+                               </Badge>
+                             ) : (
+                               <Button
+                                 type="button"
+                                 size="sm"
+                                 variant="outline"
+                                 className="h-9 bg-red-500/10 text-red-400 border border-red-500/30 hover:bg-red-600 hover:text-white text-[10px] font-black uppercase rounded-xl px-3 transition-colors cursor-pointer gap-1.5 ml-auto"
+                                 onClick={() => setDeletingUser(u)}
+                                 title="Permanently Delete Account"
+                               >
+                                 <Trash2 size={13} />
+                                 Delete Account
+                               </Button>
+                             )}
+                          </div>
+                       </div>
+                     ))}
+                     {filteredUsers.length === 0 && (
+                       <div className="py-16 text-center text-white/30 italic uppercase font-black text-xs tracking-widest">
+                         No users found
+                       </div>
+                     )}
+                  </div>
+
+                  {/* Desktop Table View */}
+                  <div className="hidden md:block overflow-x-auto">
                      <table className="w-full text-left">
                         <thead className="bg-white/5 border-b border-border">
                            <tr>
@@ -1507,6 +1611,7 @@ export default function AdminDashboard() {
                                         </Badge>
                                       ) : (
                                         <Button
+                                          type="button"
                                           size="sm"
                                           variant="outline"
                                           className="h-9 bg-red-500/10 text-red-400 border border-red-500/30 hover:bg-red-600 hover:text-white text-[10px] font-black uppercase rounded-xl px-3 transition-colors cursor-pointer gap-1.5"

@@ -42,6 +42,18 @@ const APP_BASE_URL = process.env.APP_URL || 'https://ais-pre-cut5fmpsngbcjicx2xr
 let firebaseApp: admin.app.App | null = null;
 let db: admin.firestore.Firestore | null = null;
 
+function parseServiceAccountKey(raw: string): admin.ServiceAccount {
+  const trimmed = raw.trim();
+  const jsonStr = trimmed.startsWith('{')
+    ? trimmed
+    : Buffer.from(trimmed, 'base64').toString('utf8');
+  const parsed = JSON.parse(jsonStr);
+  if (typeof parsed.private_key === 'string') {
+    parsed.private_key = parsed.private_key.replace(/\\n/g, '\n');
+  }
+  return parsed;
+}
+
 function getDb() {
   if (db) return db;
   
@@ -49,14 +61,17 @@ function getDb() {
     if (!admin.apps.length) {
       const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT_KEY;
       
-      if (serviceAccount) {
+      if (serviceAccount && serviceAccount.trim().length > 0) {
         console.log('[FIREBASE] Initializing with service account from ENV');
-        const cert = JSON.parse(serviceAccount);
+        const cert = parseServiceAccountKey(serviceAccount);
         firebaseApp = admin.initializeApp({
           credential: admin.credential.cert(cert),
           projectId: firebaseConfig.projectId,
         });
       } else {
+        if (!process.env.GOOGLE_CLOUD_QUOTA_PROJECT) {
+          process.env.GOOGLE_CLOUD_QUOTA_PROJECT = firebaseConfig.projectId;
+        }
         console.log('[FIREBASE] Initializing with projectId (Falling back to default credentials)');
         firebaseApp = admin.initializeApp({
           projectId: firebaseConfig.projectId,
@@ -616,11 +631,14 @@ async function configureApp() {
         const msg = String(authErr?.message || '');
         if (
           code === 'auth/insufficient-permission' ||
+          code === 'auth/internal-error' ||
           code === 'app/invalid-credential' ||
           msg.includes('PERMISSION_DENIED') ||
+          msg.includes('USER_PROJECT_DENIED') ||
+          msg.includes('SERVICE_DISABLED') ||
           msg.includes('Could not load the default credentials')
         ) {
-          console.warn('[REGISTER] Server Admin Auth creation skipped (IAM not provisioned yet); reCAPTCHA verified, allowing client creation:', msg);
+          console.warn('[REGISTER] Server Admin Auth creation skipped (IAM/Quota not provisioned yet); reCAPTCHA verified, allowing client creation:', msg);
           return res.status(200).json({
             success: true,
             verified: true,
@@ -658,17 +676,32 @@ async function configureApp() {
       decoded = await admin.auth().verifyIdToken(idToken, true);
     } catch (err: any) {
       const code = err?.code || '';
+      const errMsg = String(err?.message || '');
       if (code === 'auth/id-token-revoked') {
         return { ok: false, status: 401, error: 'Session revoked. Please log in again.' };
       }
       if (code === 'auth/id-token-expired') {
         return { ok: false, status: 401, error: 'Session expired. Please refresh and log in again.' };
       }
-      if (code === 'auth/insufficient-permission' || String(err?.message || '').includes('PERMISSION_DENIED')) {
-        // Fallback to stateless JWT signature verification when revocation IAM check isn't provisioned yet
+      const isInfraOrQuotaError =
+        code === 'auth/insufficient-permission' ||
+        code === 'auth/internal-error' ||
+        code === 'app/invalid-credential' ||
+        errMsg.includes('PERMISSION_DENIED') ||
+        errMsg.includes('USER_PROJECT_DENIED') ||
+        errMsg.includes('SERVICE_DISABLED') ||
+        errMsg.includes('Could not load the default credentials') ||
+        errMsg.includes('identitytoolkit');
+
+      if (isInfraOrQuotaError) {
+        // Fallback to stateless JWT cryptographic verification when revocation IAM/quota check isn't provisioned yet
         try {
           decoded = await admin.auth().verifyIdToken(idToken, false);
         } catch (fallbackErr: any) {
+          const fallbackCode = fallbackErr?.code || '';
+          if (fallbackCode === 'auth/id-token-expired') {
+            return { ok: false, status: 401, error: 'Session expired. Please refresh and log in again.' };
+          }
           return { ok: false, status: 401, error: 'Invalid or expired authentication token.' };
         }
       } else {
