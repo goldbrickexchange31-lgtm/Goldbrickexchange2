@@ -961,7 +961,7 @@ export default function AdminDashboard() {
     { id: 'users', label: 'All Users', icon: Users },
     { id: 'activations', label: 'Activation Requests', icon: ShieldCheck, badge: pendingActivationsCount > 0 ? pendingActivationsCount : undefined },
     { id: 'investment', label: 'Investment Plans', icon: BarChart2 },
-    { id: 'wallets', label: 'Wallets manager', icon: Wallet },
+    { id: 'wallets', label: 'Wallets Manager', icon: Wallet },
     { id: 'deposit', label: 'Deposits', icon: ArrowDownLeft, badge: transactions.filter(t => t.type === 'deposit' && t.status === 'pending').length },
     { id: 'withdrawal', label: 'Withdrawals', icon: ArrowUpRight, badge: transactions.filter(t => t.type === 'withdrawal' && t.status === 'pending').length },
     { id: 'chat', label: 'Support Chat', icon: MessageSquare },
@@ -993,84 +993,114 @@ export default function AdminDashboard() {
       {/* Sidebar Mobile Overlay */}
       {isSidebarOpen && (
         <div 
-          className="fixed inset-0 bg-black/40 z-40 lg:hidden backdrop-blur-sm"
+          className="fixed inset-0 bg-black/60 z-40 lg:hidden backdrop-blur-sm"
           onClick={() => setIsSidebarOpen(false)}
         />
       )}
 
-      {/* Sidebar Content */}
+      {/* Sidebar Content (Flex Column: Header + Scrollable Nav + Fixed Non-Overlapping Footer) */}
       <aside className={`
-        fixed inset-y-0 left-0 w-72 bg-card border-r border-border z-50 transform transition-transform duration-300 ease-in-out
+        fixed inset-y-0 left-0 w-72 max-w-[85vw] bg-card border-r border-border z-50 flex flex-col h-[100dvh] lg:h-screen transform transition-transform duration-300 ease-in-out
         ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}
-        lg:relative lg:translate-x-0
+        lg:relative lg:translate-x-0 lg:shrink-0
       `}>
-        <div className="p-8 border-b border-border">
-          <h2 className="text-2xl font-black vibrant-text italic tracking-tighter uppercase flex items-center gap-2">
-            Admin Panel
-          </h2>
-          <p className="text-[9px] text-white/40 font-bold uppercase tracking-widest mt-1">Status: Master Mode</p>
+        <div className="p-6 border-b border-border flex items-center justify-between gap-3 shrink-0">
+          <div className="min-w-0">
+            <h2 className="text-xl sm:text-2xl font-black vibrant-text italic tracking-tighter uppercase truncate">
+              Admin Panel
+            </h2>
+            <p className="text-[9px] text-white/40 font-bold uppercase tracking-widest mt-1">Status: Master Mode</p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setIsSidebarOpen(false)}
+            aria-label="Close navigation menu"
+            className="lg:hidden size-9 flex items-center justify-center rounded-xl bg-white/5 border border-border text-white/70 hover:text-white hover:bg-white/10 transition-colors shrink-0 cursor-pointer"
+          >
+            <X size={18} />
+          </button>
         </div>
 
-        <nav className="p-4 space-y-1">
-          {sidebarItems.map((item) => (
-            <button
-              key={item.id}
-              onClick={() => { setActiveSection(item.id as Section); setIsSidebarOpen(false); }}
-              className={`
-                w-full flex items-center justify-between px-4 py-4 rounded-xl transition-all group
-                ${activeSection === item.id ? 'bg-primary text-primary-foreground font-black shadow-lg shadow-primary/20' : 'hover:bg-white/5 text-white/40'}
-              `}
-            >
-              <div className="flex items-center gap-3">
-                <item.icon className="size-5" />
-                <span className="text-xs uppercase tracking-widest font-bold">{item.label}</span>
-              </div>
-              {item.badge ? (
-                <span className={`text-[10px] px-2 py-0.5 rounded-md ${activeSection === item.id ? 'bg-white text-primary' : 'bg-primary text-primary-foreground'} font-black`}>
-                  {item.badge}
-                </span>
-              ) : (
-                <ChevronRight className={`size-4 opacity-0 group-hover:opacity-100 transition-opacity ${activeSection === item.id ? 'hidden' : ''}`} />
-              )}
-            </button>
-          ))}
+        <nav className="flex-1 overflow-y-auto p-3.5 space-y-1.5 no-scrollbar">
+          {sidebarItems.map((item) => {
+            const isActive = activeSection === item.id;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => { setActiveSection(item.id as Section); setIsSidebarOpen(false); }}
+                className={`
+                  w-full flex items-center justify-between gap-3 px-4 py-3 rounded-xl text-left transition-all group cursor-pointer
+                  ${isActive ? 'bg-primary text-primary-foreground font-black shadow-lg shadow-primary/20' : 'hover:bg-white/5 text-white/60 hover:text-white'}
+                `}
+              >
+                <div className="flex items-center gap-3 min-w-0">
+                  <item.icon className="size-4 shrink-0" />
+                  <span className="text-xs uppercase tracking-wider font-bold truncate">{item.label}</span>
+                </div>
+                {item.badge ? (
+                  <span className={`text-[10px] px-2 py-0.5 rounded-md shrink-0 font-black ${isActive ? 'bg-black/25 text-primary-foreground' : 'bg-primary text-primary-foreground'}`}>
+                    {item.badge}
+                  </span>
+                ) : (
+                  <ChevronRight className={`size-4 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity ${isActive ? 'hidden' : ''}`} />
+                )}
+              </button>
+            );
+          })}
         </nav>
 
-        <div className="absolute bottom-0 left-0 right-0 p-6 border-t border-border space-y-2">
-            <Link to="/dashboard" className="block w-full">
-               <Button variant="ghost" className="w-full text-white/40 hover:text-primary uppercase text-[10px] font-black tracking-widest justify-start rounded-xl">
-                 <LayoutDashboard className="mr-2 size-3" /> Dashboard
-               </Button>
-            </Link>
-            <Button onClick={handleLogout} variant="ghost" className="w-full text-white/40 hover:text-red-500 hover:bg-red-500/10 uppercase text-[10px] font-black tracking-widest justify-start rounded-xl">
-              <LogOut className="mr-2 size-3" /> Logout
+        <div className="shrink-0 p-4 border-t border-border bg-card space-y-1.5">
+          <Link to="/dashboard" className="block w-full" onClick={() => setIsSidebarOpen(false)}>
+            <Button
+              type="button"
+              variant="ghost"
+              className="w-full h-11 px-4 text-white/60 hover:text-primary hover:bg-white/5 uppercase text-[11px] font-black tracking-wider justify-start gap-3 rounded-xl cursor-pointer"
+            >
+              <LayoutDashboard className="size-4 shrink-0" />
+              <span>Dashboard</span>
             </Button>
+          </Link>
+          <Button
+            type="button"
+            onClick={handleLogout}
+            variant="ghost"
+            className="w-full h-11 px-4 text-white/60 hover:text-red-400 hover:bg-red-500/10 uppercase text-[11px] font-black tracking-wider justify-start gap-3 rounded-xl cursor-pointer"
+          >
+            <LogOut className="size-4 shrink-0" />
+            <span>Logout</span>
+          </Button>
         </div>
       </aside>
 
       {/* Main Content Area */}
-      <main className="flex-1 flex flex-col h-screen overflow-hidden">
-        <header className="h-20 border-b border-border bg-card flex items-center justify-between px-6 lg:px-10 shrink-0">
-          <div className="flex items-center gap-4">
+      <main className="flex-1 min-w-0 flex flex-col h-[100dvh] overflow-hidden">
+        <header className="h-16 sm:h-20 border-b border-border bg-card flex items-center justify-between gap-3 px-4 sm:px-6 lg:px-10 shrink-0">
+          <div className="flex items-center gap-3 min-w-0">
             <button 
+              type="button"
               onClick={() => setIsSidebarOpen(true)}
-              className="lg:hidden p-2 text-slate-400"
+              aria-label="Open admin menu"
+              className="lg:hidden size-10 flex items-center justify-center rounded-xl bg-white/5 border border-border text-white/80 hover:text-white hover:bg-white/10 transition-colors shrink-0 cursor-pointer"
             >
-              <Menu size={24} />
+              <Menu size={20} />
             </button>
-            <h1 className="text-xl font-black italic vibrant-text uppercase tracking-tighter">
+            <h1 className="text-base sm:text-xl font-black italic vibrant-text uppercase tracking-tighter truncate">
               {sidebarItems.find(i => i.id === activeSection)?.label}
             </h1>
           </div>
-          <div className="flex items-center gap-4">
-             <div className="hidden sm:flex items-center gap-2 bg-white/5 px-4 py-2 rounded-full border border-border">
-                <div className="size-2 rounded-full bg-green-500 animate-pulse" />
-                <span className="text-[10px] font-bold text-white/40 uppercase tracking-widest">System Active</span>
+          <div className="flex items-center gap-2 shrink-0">
+             <div className="flex items-center gap-2 bg-white/5 px-3 sm:px-4 py-1.5 sm:py-2 rounded-full border border-border">
+                <div className="size-2 rounded-full bg-green-500 animate-pulse shrink-0" />
+                <span className="text-[9px] sm:text-[10px] font-bold text-white/60 uppercase tracking-widest whitespace-nowrap">
+                  <span className="sm:hidden">Active</span>
+                  <span className="hidden sm:inline">System Active</span>
+                </span>
              </div>
           </div>
         </header>
 
-        <div className="flex-1 overflow-y-auto p-6 lg:p-10 no-scrollbar">
+        <div className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-10 no-scrollbar">
           {/* Overview */}
           {activeSection === 'overview' && (
             <div className="space-y-10">
@@ -1636,12 +1666,12 @@ export default function AdminDashboard() {
           {/* Investment (Plans) Section */}
           {activeSection === 'investment' && (
             <div className="space-y-10">
-               <div className="flex items-center justify-between">
+               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                   <header>
-                    <h2 className="text-3xl font-black italic vibrant-text tracking-tighter uppercase underline decoration-primary/50 decoration-4 underline-offset-8">Investment Plans</h2>
+                    <h2 className="text-2xl sm:text-3xl font-black italic vibrant-text tracking-tighter uppercase underline decoration-primary/50 decoration-4 underline-offset-8">Investment Plans</h2>
                     <p className="text-slate-400 font-bold text-[10px] uppercase tracking-widest mt-4">Manage plans users can invest in</p>
                   </header>
-                  <Button onClick={() => { setEditingPlan(null); setIsPlanModalOpen(true); }} className="bg-primary text-primary-foreground font-black uppercase text-xs h-12 px-8 rounded-2xl shadow-lg shadow-primary/20 hover:scale-105 transition-all">
+                  <Button onClick={() => { setEditingPlan(null); setIsPlanModalOpen(true); }} className="bg-primary text-primary-foreground font-black uppercase text-xs h-12 px-6 sm:px-8 rounded-2xl shadow-lg shadow-primary/20 hover:scale-105 transition-all w-full sm:w-auto cursor-pointer">
                      <Plus className="mr-2 size-5" /> New Plan
                   </Button>
                </div>
@@ -1902,54 +1932,54 @@ export default function AdminDashboard() {
           {/* Wallets Manager Section */}
           {activeSection === 'wallets' && (
             <div className="space-y-10">
-               <div className="flex items-center justify-between">
+               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                   <header>
-                    <h2 className="text-3xl font-black italic vibrant-text tracking-tighter uppercase underline decoration-primary/50 decoration-4 underline-offset-8">Crypto Wallets</h2>
+                    <h2 className="text-2xl sm:text-3xl font-black italic vibrant-text tracking-tighter uppercase underline decoration-primary/50 decoration-4 underline-offset-8">Crypto Wallets</h2>
                     <p className="text-slate-400 font-bold text-[10px] uppercase tracking-widest mt-4">Manage addresses where users send their deposits</p>
                   </header>
                   <Button onClick={() => {
                       setEditingWallet(null);
                       setIsWalletModalOpen(true);
-                  }} className="bg-primary text-primary-foreground font-black uppercase text-xs h-12 px-8 rounded-2xl shadow-lg shadow-primary/20 hover:scale-105 transition-all">
+                  }} className="bg-primary text-primary-foreground font-black uppercase text-xs h-12 px-6 sm:px-8 rounded-2xl shadow-lg shadow-primary/20 hover:scale-105 transition-all w-full sm:w-auto cursor-pointer">
                      <Plus className="mr-2 size-5" /> Add New Wallet
                   </Button>
                </div>
 
-               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 sm:gap-8">
                   {wallets.map(w => (
                     <Card key={w.id} className="bg-card border-border rounded-[2rem] overflow-hidden group hover:border-primary/50 transition-all shadow-md relative border">
                        <div className="h-2 w-full bg-white/5 group-hover:bg-primary transition-all duration-700" />
-                       <CardContent className="p-8">
-                          <div className="flex justify-between items-start mb-6">
+                       <CardContent className="p-6 sm:p-8">
+                          <div className="flex flex-col gap-5 mb-6">
                              <div className="flex items-center gap-4">
-                                <div className="size-16 rounded-2xl bg-white p-1 border-2 border-primary/10 shadow-sm overflow-hidden flex items-center justify-center">
+                                <div className="size-14 sm:size-16 rounded-2xl bg-white p-1 border-2 border-primary/10 shadow-sm overflow-hidden flex items-center justify-center shrink-0">
                                    {w.qrCodeUrl ? (
                                      <img src={w.qrCodeUrl} alt="QR" className="w-full h-full object-contain" />
                                    ) : (
                                      <QrCode className="text-slate-200 size-8" />
                                    )}
                                 </div>
-                                <div>
-                                   <h3 className="text-xl font-black italic uppercase tracking-tighter text-white group-hover:text-primary transition-colors">{w.currency}</h3>
-                                   <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest">{w.network} NETWORK</p>
+                                <div className="min-w-0">
+                                   <h3 className="text-xl font-black italic uppercase tracking-tighter text-white group-hover:text-primary transition-colors truncate">{w.currency}</h3>
+                                   <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest truncate">{w.network} NETWORK</p>
                                 </div>
                              </div>
-                              <div className="flex flex-col gap-2 w-full">
+                              <div className="flex flex-col sm:flex-row gap-2 w-full">
                                  <Button 
-                                   className="h-12 bg-background border border-border text-primary font-black uppercase text-[10px] rounded-2xl hover:bg-primary hover:text-primary-foreground transition-all gap-3 px-6 shadow-sm" 
+                                   className="flex-1 h-11 bg-background border border-border text-primary font-black uppercase text-[10px] rounded-2xl hover:bg-primary hover:text-primary-foreground transition-all gap-2 px-4 shadow-sm cursor-pointer" 
                                    onClick={() => {
                                      setEditingWallet(w);
                                      setIsWalletModalOpen(true);
                                    }}
                                  >
-                                    <Edit2 size={16} /> Edit Wallet Address
+                                    <Edit2 size={14} /> Edit Wallet
                                  </Button>
                                  <Button 
                                    variant="ghost"
-                                   className="h-10 text-red-500 hover:bg-red-500/10 hover:text-red-600 rounded-xl text-[9px] font-black uppercase transition-all"
+                                   className="h-11 px-4 text-red-500 hover:bg-red-500/10 hover:text-red-400 rounded-2xl text-[10px] font-black uppercase transition-all border border-red-500/20 cursor-pointer"
                                    onClick={() => handleDeleteWallet(w.id)}
                                  >
-                                    <Trash2 size={12} className="mr-2" /> Delete Wallet
+                                    <Trash2 size={14} className="mr-1.5" /> Delete
                                  </Button>
                               </div>
                           </div>
