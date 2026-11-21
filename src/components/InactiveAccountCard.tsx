@@ -1,8 +1,7 @@
 import { FC } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ShieldAlert, ArrowRight, Sparkles, AlertCircle, Clock, CheckCircle2 } from 'lucide-react';
+import { ShieldAlert, ArrowRight, AlertCircle, Clock } from 'lucide-react';
 import { Button } from './ui/button';
-import { Badge } from './ui/badge';
 
 interface InactiveAccountCardProps {
   activationFee?: number;
@@ -17,107 +16,67 @@ export const InactiveAccountCard: FC<InactiveAccountCardProps> = ({
   activationCurrency = '$',
   hasPendingRequest = false,
   rejectionReason = null,
-  submittedAt,
 }) => {
   const navigate = useNavigate();
 
   return (
-    <div className="relative overflow-hidden rounded-[2.5rem] border-2 border-amber-500/30 bg-gradient-to-br from-card via-card to-amber-950/15 p-6 sm:p-8 shadow-2xl shadow-black/40 transition-all">
-      {/* Background subtle illumination */}
-      <div className="absolute top-0 right-0 w-80 h-80 bg-amber-500/10 rounded-full blur-3xl pointer-events-none" />
-
-      <div className="relative flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
-        <div className="space-y-3 max-w-2xl">
-          <div className="flex flex-wrap items-center gap-2 sm:gap-3">
-            <span className="text-[10px] font-black uppercase tracking-[0.25em] text-white/40">
-              Account Status
-            </span>
-            <span className="text-white/20">•</span>
+    <div className="relative overflow-hidden rounded-2xl border border-amber-500/30 bg-gradient-to-br from-amber-500/10 via-[#0A0F18] to-[#0A0F18] p-5 sm:p-6 shadow-xl">
+      <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-5">
+        <div className="space-y-2 max-w-2xl">
+          <div className="flex items-center gap-2 text-xs font-medium">
             {hasPendingRequest ? (
-              <Badge className="bg-amber-500/15 text-amber-400 border border-amber-500/30 font-black uppercase text-[10px] tracking-widest px-3 py-1 rounded-full flex items-center gap-1.5">
-                <span className="size-2 rounded-full bg-amber-400 animate-ping" />
-                PENDING REVIEW
-              </Badge>
+              <span className="text-amber-400 flex items-center gap-1.5">
+                <Clock className="size-3.5" /> Account Activation · Pending Review
+              </span>
             ) : rejectionReason ? (
-              <Badge className="bg-red-500/15 text-red-400 border border-red-500/30 font-black uppercase text-[10px] tracking-widest px-3 py-1 rounded-full flex items-center gap-1.5">
-                <span className="size-2 rounded-full bg-red-400" />
-                INACTIVE • ACTION REQUIRED
-              </Badge>
+              <span className="text-red-400 flex items-center gap-1.5">
+                <AlertCircle className="size-3.5" /> Account Inactive · Verification Required
+              </span>
             ) : (
-              <Badge className="bg-amber-500/15 text-amber-400 border border-amber-500/30 font-black uppercase text-[10px] tracking-widest px-3 py-1 rounded-full flex items-center gap-1.5">
-                <span className="size-2 rounded-full bg-amber-400" />
-                INACTIVE
-              </Badge>
+              <span className="text-amber-400 flex items-center gap-1.5">
+                <ShieldAlert className="size-3.5" /> Account Status · Inactive
+              </span>
             )}
           </div>
 
-          <h3 className="text-xl sm:text-2xl font-black italic uppercase tracking-tight text-white flex items-center gap-2.5">
-            {hasPendingRequest ? (
-              <>
-                <Clock className="size-6 text-amber-400 shrink-0" />
-                Activation Payment Submitted for Audit
-              </>
-            ) : rejectionReason ? (
-              <>
-                <AlertCircle className="size-6 text-red-400 shrink-0" />
-                Activation Verification Notice
-              </>
-            ) : (
-              <>
-                <ShieldAlert className="size-6 text-amber-400 shrink-0" />
-                Your Account is Currently Inactive
-              </>
-            )}
+          <h3 className="text-lg sm:text-xl font-bold text-white">
+            {hasPendingRequest
+              ? 'Activation Payment Under Review'
+              : rejectionReason
+              ? 'Activation Verification Required'
+              : 'Activate Your GoldBrick Account'}
           </h3>
 
-          <p className="text-white/70 text-xs sm:text-sm font-medium leading-relaxed">
+          <p className="text-sm text-white/65 leading-relaxed">
             {hasPendingRequest ? (
-              <>
-                Your payment proof is currently under review by compliance. Once verified, full account capabilities will be unlocked automatically.
-              </>
+              'Your activation payment proof is currently being audited by compliance. Full investment and withdrawal privileges will unlock immediately once approved.'
             ) : rejectionReason ? (
               <>
-                <span className="text-red-300 font-bold block mb-1">Audit Note: {rejectionReason}</span>
-                Please review your deposit details and submit a valid payment receipt to activate your account.
+                <span className="text-red-300 font-medium block mb-0.5">Audit Note: {rejectionReason}</span>
+                Please review the wallet details and submit an updated receipt to activate your account.
               </>
             ) : (
               <>
-                Activate your account to unlock full access to Goldbrick investment packages, portfolio returns, capital deployment, and rapid withdrawals.
+                Complete the one-time activation payment (<span className="font-mono font-semibold text-white">{activationCurrency}{activationFee.toLocaleString()}</span>) to unlock investment plans and instant withdrawals.
               </>
             )}
           </p>
-
-          {!hasPendingRequest && (
-            <div className="flex items-center gap-3 pt-1 text-[11px] font-mono text-white/50">
-              <span>Standard Activation Fee:</span>
-              <span className="font-black text-white bg-white/5 border border-white/10 px-2.5 py-0.5 rounded-lg text-xs">
-                {activationCurrency}{activationFee.toLocaleString()}
-              </span>
-            </div>
-          )}
         </div>
 
-        <div className="w-full md:w-auto shrink-0 flex flex-col sm:flex-row md:flex-col gap-2.5">
-          <Button
-            type="button"
-            onClick={() => navigate('/activate')}
-            className="h-12 sm:h-14 px-6 sm:px-8 bg-primary text-primary-foreground font-black uppercase text-[11px] sm:text-xs tracking-widest rounded-2xl shadow-xl shadow-primary/20 hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-2 cursor-pointer w-full"
-          >
-            {hasPendingRequest ? (
-              <>
-                View Audit Status <ArrowRight className="size-4" />
-              </>
-            ) : rejectionReason ? (
-              <>
-                Submit New Proof <ArrowRight className="size-4" />
-              </>
-            ) : (
-              <>
-                Activate Account <ArrowRight className="size-4" />
-              </>
-            )}
-          </Button>
-        </div>
+        <Button
+          type="button"
+          onClick={() => navigate('/activate')}
+          className="w-full md:w-auto h-11 px-5 bg-primary text-slate-950 hover:bg-amber-400 font-semibold text-sm rounded-xl shadow-lg shadow-primary/20 flex items-center justify-center gap-2 shrink-0 cursor-pointer"
+        >
+          <span>
+            {hasPendingRequest
+              ? 'View Status'
+              : rejectionReason
+              ? 'Submit New Proof'
+              : 'Activate Account'}
+          </span>
+          <ArrowRight className="size-4" />
+        </Button>
       </div>
     </div>
   );

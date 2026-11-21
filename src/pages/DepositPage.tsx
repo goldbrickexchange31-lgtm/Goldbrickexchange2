@@ -3,21 +3,21 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../co
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
-import { 
-  Copy, 
-  Upload, 
-  CheckCircle2, 
-  QrCode, 
-  ArrowRight, 
-  ShieldCheck, 
-  DollarSign, 
-  Wallet, 
-  UserCheck, 
-  Clock, 
+import {
+  Copy,
+  Check,
+  Upload,
+  CheckCircle2,
+  ArrowRight,
+  ShieldCheck,
+  Wallet,
+  UserCheck,
+  Clock,
   AlertCircle,
-  FileText,
-  ExternalLink,
-  ChevronLeft
+  Hash,
+  FileCheck2,
+  ChevronLeft,
+  Info
 } from 'lucide-react';
 import DashboardLayout from '../components/DashboardLayout';
 import { db } from '../lib/firebase';
@@ -40,8 +40,8 @@ export default function DepositPage({ isActivationFlow = false }: DepositPagePro
   const [searchParams] = useSearchParams();
 
   const isActivation = Boolean(
-    isActivationFlow || 
-    searchParams.get('type') === 'activation' || 
+    isActivationFlow ||
+    searchParams.get('type') === 'activation' ||
     searchParams.get('action') === 'activate' ||
     location.pathname === '/activate'
   );
@@ -51,33 +51,29 @@ export default function DepositPage({ isActivationFlow = false }: DepositPagePro
   const [config, setConfig] = useState<any>(null);
   const [activationConfig, setActivationConfig] = useState<any>(null);
   const [existingActivationReq, setExistingActivationReq] = useState<any>(null);
-  const [step, setStep] = useState(1);
-  const [amount, setAmount] = useState('');
+  const [submitted, setSubmitted] = useState(false);
   const [txHash, setTxHash] = useState('');
   const [receiptUrl, setReceiptUrl] = useState('');
   const [isUploading, setIsUploading] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [copied, setCopied] = useState(false);
   const [isViewingProof, setIsViewingProof] = useState(false);
   const [resubmitting, setResubmitting] = useState(false);
 
-  // Dynamic activation fee and currency from admin settings
   const activationFee = activationConfig?.amount ?? config?.activationFee ?? 50;
   const activationCurrency = activationConfig?.currency || config?.activationCurrency || '$';
 
   useEffect(() => {
-    // Listen to Wallets
     const unsubWallets = onSnapshot(collection(db, 'wallets'), (snap) => {
-      const data = snap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      const data = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       setWallets(data);
       if (data.length > 0 && !selectedWallet) setSelectedWallet(data[0]);
     });
 
-    // Listen to Config
     const unsubConfig = onSnapshot(doc(db, 'config', 'general'), (snap) => {
       if (snap.exists()) setConfig(snap.data());
     });
 
-    // Listen to Activation Settings
     const unsubActivationConfig = onSnapshot(doc(db, 'settings', 'accountActivation'), (snap) => {
       if (snap.exists()) setActivationConfig(snap.data());
     });
@@ -89,7 +85,6 @@ export default function DepositPage({ isActivationFlow = false }: DepositPagePro
     };
   }, []);
 
-  // Listen to existing user activation requests
   useEffect(() => {
     if (!userData?.uid) return;
     const q = query(
@@ -111,17 +106,12 @@ export default function DepositPage({ isActivationFlow = false }: DepositPagePro
     return () => unsubReq();
   }, [userData?.uid]);
 
-  // Set default amount when activation mode is active
-  useEffect(() => {
-    if (isActivation) {
-      setAmount(String(activationFee));
-    }
-  }, [isActivation, activationFee]);
-
   const handleCopy = () => {
-    if (!selectedWallet) return;
+    if (!selectedWallet?.address) return;
     navigator.clipboard.writeText(selectedWallet.address);
-    toast.success('Address copied to clipboard');
+    setCopied(true);
+    toast.success('Wallet address copied to clipboard');
+    setTimeout(() => setCopied(false), 2000);
   };
 
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -135,7 +125,7 @@ export default function DepositPage({ isActivationFlow = false }: DepositPagePro
 
     setIsUploading(true);
     try {
-      const res = await fetch('/api/upload/signature', { 
+      const res = await fetch('/api/upload/signature', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' }
       });
@@ -156,7 +146,7 @@ export default function DepositPage({ isActivationFlow = false }: DepositPagePro
         method: 'POST',
         body: formData
       });
-      
+
       if (!uploadRes.ok) {
         const errorData = await uploadRes.json();
         throw new Error(errorData.error?.message || 'Receipt upload could not be completed');
@@ -164,7 +154,7 @@ export default function DepositPage({ isActivationFlow = false }: DepositPagePro
 
       const data = await uploadRes.json();
       setReceiptUrl(data.secure_url);
-      toast.success('Proof of payment uploaded successfully');
+      toast.success('Payment proof uploaded successfully');
     } catch (error: any) {
       toast.error(error.message || 'We could not upload your payment proof. Please try again.');
       console.warn('Upload Error Notice:', error?.message || error);
@@ -174,17 +164,16 @@ export default function DepositPage({ isActivationFlow = false }: DepositPagePro
   };
 
   const handleSubmitDeposit = async () => {
-    if (!receiptUrl) {
-      return toast.error('Please upload your payment proof / receipt');
-    }
     if (!selectedWallet) {
-      return toast.error('Please select a payment repository');
+      return toast.error('Please select a crypto wallet');
+    }
+    if (!receiptUrl) {
+      return toast.error('Please upload your payment proof screenshot or receipt');
     }
 
     setLoading(true);
     try {
       if (isActivation) {
-        // ACTIVATION FLOW VALIDATION
         if (!userData) {
           throw new Error('Please sign in to complete account activation');
         }
@@ -196,7 +185,6 @@ export default function DepositPage({ isActivationFlow = false }: DepositPagePro
 
         const effectiveAmount = parseFloat(String(activationFee)) || 50;
 
-        // 1. Submit to activationRequests collection
         await addDoc(collection(db, 'activationRequests'), {
           userId: userData.uid,
           userName: userData.displayName || 'Investor',
@@ -206,12 +194,11 @@ export default function DepositPage({ isActivationFlow = false }: DepositPagePro
           paymentProof: receiptUrl,
           walletAddress: selectedWallet.address || '',
           network: selectedWallet.network || '',
-          txHash: txHash || 'Activation-Receipt',
+          txHash: txHash.trim() || 'Activation-Receipt',
           status: 'pending',
           submittedAt: serverTimestamp()
         });
 
-        // 2. Also register in transactions ledger
         try {
           await addDoc(collection(db, 'transactions'), {
             userId: userData.uid,
@@ -219,10 +206,10 @@ export default function DepositPage({ isActivationFlow = false }: DepositPagePro
             userEmail: userData.email || '',
             type: 'deposit',
             amount: effectiveAmount,
-            currency: selectedWallet.symbol || activationCurrency,
+            currency: selectedWallet.symbol || selectedWallet.currency || activationCurrency,
             status: 'pending',
             receiptUrl,
-            txHash: txHash || 'Activation-Fee',
+            txHash: txHash.trim() || 'Activation-Fee',
             description: 'Account Activation Fee',
             walletAddress: selectedWallet.address || '',
             network: selectedWallet.network || '',
@@ -232,38 +219,40 @@ export default function DepositPage({ isActivationFlow = false }: DepositPagePro
           console.warn('Transaction record note:', tErr);
         }
 
-        setStep(3);
+        setSubmitted(true);
         toast.success('Activation request submitted successfully!');
       } else {
-        // STANDARD DEPOSIT FLOW
-        if (!amount || !txHash || !receiptUrl) {
-          return toast.error('Required fields: Amount, TX Hash, and Receipt');
-        }
-
         const pathTx = 'transactions';
         await addDoc(collection(db, pathTx), {
           userId: userData?.uid,
           userName: userData?.displayName || 'Investor',
           userEmail: userData?.email,
           type: 'deposit',
-          amount: parseFloat(amount),
-          currency: selectedWallet.symbol,
+          amount: 0,
+          amountPendingAdmin: true,
+          currency: selectedWallet.symbol || selectedWallet.currency || 'CRYPTO',
           status: 'pending',
           receiptUrl,
-          txHash,
+          txHash: txHash.trim() || '',
           walletAddress: selectedWallet.address,
           network: selectedWallet.network,
           createdAt: serverTimestamp()
         }).catch(e => handleFirestoreError(e, OperationType.CREATE, pathTx));
 
-        setStep(3);
-        toast.success('Capital injection submitted for audit');
+        setSubmitted(true);
+        toast.success('Deposit proof submitted for admin verification');
       }
     } catch (e: any) {
-      toast.error(e.message || 'Submission sequence could not be completed');
+      toast.error(e.message || 'Submission could not be completed');
     } finally {
       setLoading(false);
     }
+  };
+
+  const resetForAnotherDeposit = () => {
+    setSubmitted(false);
+    setReceiptUrl('');
+    setTxHash('');
   };
 
   return (
@@ -272,408 +261,472 @@ export default function DepositPage({ isActivationFlow = false }: DepositPagePro
         isOpen={isViewingProof}
         onClose={() => setIsViewingProof(false)}
         imageUrl={existingActivationReq?.paymentProof || receiptUrl}
-        title="Activation Payment Proof"
+        title="Payment Proof"
         userName={userData?.displayName || 'Investor'}
-        amount={existingActivationReq?.amount || activationFee}
-        currency={existingActivationReq?.currency || activationCurrency}
+        amount={isActivation ? (existingActivationReq?.amount || activationFee) : undefined}
+        currency={isActivation ? (existingActivationReq?.currency || activationCurrency) : undefined}
       />
 
-      <div className="max-w-2xl mx-auto space-y-10 pb-12 px-4 sm:px-0">
-        <header className="space-y-3">
-          {isActivation ? (
-            <>
-              <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-amber-500/10 border border-amber-500/25 text-amber-400 text-[10px] font-black uppercase tracking-widest">
-                <UserCheck className="size-3.5" />
-                Account Activation Protocol
-              </div>
-              <h1 className="text-3xl md:text-5xl font-black italic tracking-tighter uppercase vibrant-text leading-tight drop-shadow-sm">
-                Activate Your Account
-              </h1>
-              <p className="text-white/40 font-bold text-[10px] uppercase tracking-[0.3em]">
-                Complete the one-time activation fee to unlock full access to your Goldbrick account
-              </p>
-            </>
-          ) : (
-            <>
-              <h1 className="text-3xl md:text-5xl font-black italic tracking-tighter uppercase vibrant-text leading-tight drop-shadow-sm">Deposit Capital</h1>
-              <p className="text-white/40 font-bold text-[10px] uppercase tracking-[0.3em] font-bold">Deploy your assets into the investment pool</p>
-            </>
+      <div className="max-w-5xl mx-auto space-y-6 pb-10">
+        {/* Clean Page Header */}
+        <header className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 pb-4 border-b border-white/[0.08]">
+          <div className="space-y-1.5">
+            <div className="flex items-center gap-2 text-xs font-medium text-amber-400">
+              {isActivation ? (
+                <>
+                  <UserCheck className="size-3.5" />
+                  <span>Account Verification &amp; Activation</span>
+                </>
+              ) : (
+                <>
+                  <Wallet className="size-3.5" />
+                  <span>Direct Crypto Funding</span>
+                </>
+              )}
+            </div>
+            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-white">
+              {isActivation ? 'Activate Your Account' : 'Deposit Crypto'}
+            </h1>
+            <p className="text-sm text-white/55 max-w-xl">
+              {isActivation
+                ? 'Complete your one-time activation fee to unlock portfolio staking and rapid withdrawals.'
+                : 'Send crypto to an official wallet below and upload your receipt. Our desk verifies and credits the exact USD value received.'}
+            </p>
+          </div>
+          {!isActivation && !submitted && (
+            <Button
+              variant="outline"
+              onClick={() => navigate('/transactions')}
+              className="border-white/10 bg-white/[0.03] hover:bg-white/[0.07] text-white/80 hover:text-white h-10 px-4 rounded-xl text-xs font-medium shrink-0 cursor-pointer"
+            >
+              View Deposit History
+            </Button>
           )}
         </header>
 
-        {/* Existing Pending Request Notice in Activation Mode */}
-        {isActivation && existingActivationReq?.status === 'pending' && !resubmitting && step !== 3 && (
-          <Card className="bg-card border-amber-500/30 shadow-2xl rounded-[2.5rem] overflow-hidden border-t-4 border-t-amber-500 border p-8 md:p-10 space-y-8 animate-in fade-in">
-            <div className="flex items-center justify-between flex-wrap gap-4 border-b border-border pb-6">
-              <div className="flex items-center gap-3">
-                <div className="size-12 rounded-2xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400">
-                  <Clock className="size-6 animate-pulse" />
-                </div>
-                <div>
-                  <div className="inline-flex items-center gap-1.5 text-[10px] font-black uppercase tracking-widest text-amber-400">
-                    <span className="size-2 rounded-full bg-amber-400 animate-ping" />
-                    STATUS: PENDING REVIEW
+        {/* Activation Mode: Existing Pending Request View */}
+        {isActivation && existingActivationReq?.status === 'pending' && !resubmitting && !submitted && (
+          <Card className="bg-[#0A0F18]/90 border-amber-500/30 rounded-2xl overflow-hidden shadow-xl">
+            <CardContent className="p-6 sm:p-8 space-y-6">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b border-white/[0.08]">
+                <div className="flex items-center gap-3.5">
+                  <div className="size-11 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400 shrink-0">
+                    <Clock className="size-5" />
                   </div>
-                  <h3 className="text-xl md:text-2xl font-black italic uppercase text-white tracking-tight">Activation Request Submitted</h3>
+                  <div>
+                    <p className="text-xs font-medium text-amber-400">Pending Review</p>
+                    <h3 className="text-lg sm:text-xl font-bold text-white">Activation Request Submitted</h3>
+                  </div>
+                </div>
+                <div className="text-left sm:text-right font-mono tabular-nums">
+                  <span className="text-xs text-white/45 block">Activation Fee</span>
+                  <span className="text-xl font-bold text-white">
+                    {existingActivationReq.currency || activationCurrency}{Number(existingActivationReq.amount).toLocaleString()}
+                  </span>
                 </div>
               </div>
-            </div>
 
-            <p className="text-white/70 text-xs md:text-sm font-medium leading-relaxed">
-              Your payment proof has been submitted successfully and is awaiting review. Our compliance team is verifying your deposit transaction. Once confirmed, full account privileges will be activated automatically.
-            </p>
+              <p className="text-sm text-white/65 leading-relaxed">
+                Your activation payment proof is currently under review by our compliance team. Once verified, full trading and withdrawal access will be unlocked automatically.
+              </p>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 bg-white/5 p-6 rounded-2xl border border-white/10 font-mono text-xs">
-              <div className="space-y-1">
-                <span className="text-[10px] font-sans font-black uppercase tracking-widest text-white/40 block">Payment Amount</span>
-                <span className="text-lg font-black text-white italic">
-                  {existingActivationReq.currency || activationCurrency}{Number(existingActivationReq.amount).toLocaleString()}
-                </span>
-              </div>
-              <div className="space-y-1">
-                <span className="text-[10px] font-sans font-black uppercase tracking-widest text-white/40 block">Payment Status</span>
-                <span className="text-sm font-bold text-amber-400 uppercase tracking-wider flex items-center gap-1.5">
-                  <Clock className="size-3.5" /> Pending Review
-                </span>
-              </div>
-            </div>
-
-            {existingActivationReq.paymentProof && (
-              <div className="space-y-3">
-                <Label className="text-[10px] text-white/40 font-black uppercase tracking-widest">Submitted Payment Proof</Label>
-                <div className="flex items-center gap-4 bg-background border border-border p-4 rounded-2xl">
-                  <img 
-                    src={existingActivationReq.paymentProof} 
-                    alt="Receipt thumbnail" 
-                    className="size-16 object-cover rounded-xl border border-white/10 cursor-pointer hover:opacity-80 transition-opacity"
+              {existingActivationReq.paymentProof && (
+                <div className="flex items-center gap-4 bg-white/[0.03] border border-white/[0.08] p-4 rounded-xl">
+                  <img
+                    src={existingActivationReq.paymentProof}
+                    alt="Receipt thumbnail"
+                    className="size-14 object-cover rounded-lg border border-white/10 cursor-pointer hover:opacity-80 transition-opacity"
                     onClick={() => setIsViewingProof(true)}
                   />
                   <div className="flex-1 min-w-0">
-                    <p className="text-xs font-bold text-white truncate">Receipt Evidence</p>
-                    <p className="text-[10px] font-mono text-white/40">Click to view full-resolution ledger evidence</p>
+                    <p className="text-sm font-semibold text-white truncate">Submitted Payment Receipt</p>
+                    <p className="text-xs text-white/45">Click to inspect uploaded proof</p>
                   </div>
-                  <Button 
-                    type="button" 
-                    variant="outline" 
-                    size="sm" 
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
                     onClick={() => setIsViewingProof(true)}
-                    className="h-10 px-4 rounded-xl text-primary font-bold text-xs border-primary/30"
+                    className="h-9 px-3.5 rounded-lg text-amber-400 border-amber-500/30 hover:bg-amber-500/10 text-xs font-medium cursor-pointer"
                   >
                     View Proof
                   </Button>
                 </div>
+              )}
+
+              <div className="flex flex-col sm:flex-row gap-3 pt-2">
+                <Button
+                  onClick={() => navigate('/dashboard')}
+                  className="flex-1 h-11 bg-primary text-slate-950 hover:bg-amber-400 font-semibold text-sm rounded-xl cursor-pointer"
+                >
+                  Back to Dashboard
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => setResubmitting(true)}
+                  className="h-11 px-5 border-white/10 text-white/70 hover:text-white rounded-xl text-sm cursor-pointer"
+                >
+                  Submit Updated Receipt
+                </Button>
               </div>
-            )}
-
-            <div className="pt-4 flex flex-col sm:flex-row gap-4">
-              <Button 
-                onClick={() => navigate('/dashboard')}
-                className="flex-1 h-14 bg-primary text-primary-foreground font-black uppercase text-xs tracking-widest rounded-2xl shadow-xl shadow-primary/20 hover:scale-[1.01]"
-              >
-                View Dashboard
-              </Button>
-              <Button 
-                variant="ghost" 
-                onClick={() => setResubmitting(true)}
-                className="h-14 px-6 text-white/40 hover:text-white uppercase text-[10px] font-black tracking-widest"
-              >
-                Submit Updated Receipt
-              </Button>
-            </div>
-          </Card>
-        )}
-
-        {/* Previous Rejection Notice if any */}
-        {isActivation && existingActivationReq?.status === 'rejected' && step === 1 && (
-          <div className="bg-red-500/10 border border-red-500/30 rounded-2xl p-6 text-left space-y-2 animate-in fade-in">
-            <div className="flex items-center gap-2 text-red-400 font-black uppercase text-xs tracking-wider">
-              <AlertCircle className="size-4 shrink-0" />
-              Previous Activation Review Notice
-            </div>
-            <p className="text-white/80 text-xs font-medium">
-              {existingActivationReq.rejectionReason 
-                ? `Audit Note: "${existingActivationReq.rejectionReason}"`
-                : "Your previous activation payment could not be verified. Please review the payment details and submit valid proof."}
-            </p>
-            <p className="text-white/40 text-[10px] font-mono">
-              You can submit a new payment proof below to request verification.
-            </p>
-          </div>
-        )}
-
-        {/* STEP 1: Amount / Activation Fee & Repository Setup */}
-        {step === 1 && (!isActivation || existingActivationReq?.status !== 'pending' || resubmitting) && (
-          <Card className="bg-card border-border shadow-2xl rounded-[2.5rem] overflow-hidden border-t-4 border-t-primary border">
-            <CardHeader className="p-8 border-b border-border bg-white/5">
-               <CardTitle className="text-2xl font-black italic uppercase tracking-tighter text-white flex items-center gap-3">
-                 <Wallet className="size-6 text-primary" /> {isActivation ? 'Activation Fee & Repository' : 'Setup Amount'}
-               </CardTitle>
-               <CardDescription className="text-white/40 font-bold text-[10px] uppercase tracking-widest mt-2 px-1">
-                 {isActivation ? 'ONE-TIME ACCOUNT ACTIVATION PAYMENT' : 'CHOOSE YOUR ASSET AND INVESTMENT VOLUME'}
-               </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-8 p-10">
-               {/* In Activation mode: show prominent fee card */}
-               {isActivation && (
-                 <div className="bg-gradient-to-br from-amber-500/10 to-primary/5 border border-amber-500/25 rounded-2xl p-6 space-y-2">
-                   <div className="flex items-center justify-between flex-wrap gap-2">
-                     <span className="text-[10px] font-black uppercase tracking-widest text-amber-400">Account Activation Fee</span>
-                     <span className="text-[10px] font-mono uppercase bg-amber-500/20 text-amber-300 px-2 py-0.5 rounded font-bold">Standard Verification</span>
-                   </div>
-                   <div className="text-4xl md:text-5xl font-black font-mono text-white italic tracking-tight">
-                     {activationCurrency}{activationFee.toLocaleString()}
-                   </div>
-                   <p className="text-white/50 text-[11px] font-medium leading-relaxed">
-                     Complete payment using the payment repository and instructions below. Once submitted, your payment proof will be audited by administration.
-                   </p>
-                 </div>
-               )}
-
-               <div className="space-y-4">
-                  <Label className="text-[10px] text-white/40 font-black uppercase tracking-widest">
-                    {isActivation ? 'Select Payment Method / Wallet' : 'Select Cryptocurrency'}
-                  </Label>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                     {wallets.map(w => (
-                       <div 
-                         key={w.id} 
-                         onClick={() => setSelectedWallet(w)}
-                         className={`p-6 rounded-[2rem] border-2 cursor-pointer transition-all flex items-center justify-between group ${selectedWallet?.id === w.id ? 'bg-primary/5 border-primary shadow-lg shadow-primary/10' : 'bg-card border-border hover:border-primary/30'}`}
-                       >
-                          <div className="flex items-center gap-4">
-                             <div className={`size-14 rounded-2xl flex items-center justify-center font-black italic text-2xl transition-all ${selectedWallet?.id === w.id ? 'bg-primary text-primary-foreground shadow-lg shadow-primary/20' : 'bg-white/5 text-white/20 border border-white/5'}`}>
-                                {w.symbol?.[0] || 'W'}
-                             </div>
-                             <div>
-                                <div className={`font-black uppercase tracking-tighter italic text-lg ${selectedWallet?.id === w.id ? 'text-primary' : 'text-white/40'}`}>{w.currency}</div>
-                                <div className="text-[10px] text-white/20 font-mono uppercase font-bold tracking-widest">{w.network}</div>
-                             </div>
-                          </div>
-                          {selectedWallet?.id === w.id && <CheckCircle2 className="text-primary size-7 animate-in zoom-in" />}
-                       </div>
-                     ))}
-                  </div>
-               </div>
-
-               {!isActivation ? (
-                 <div className="space-y-4">
-                    <Label className="text-[10px] text-white/40 font-black uppercase tracking-widest">Deposit Amount (USD)</Label>
-                    <div className="relative group">
-                      <div className="absolute left-6 top-1/2 -translate-y-1/2 size-10 bg-white/5 rounded-xl flex items-center justify-center border border-border group-focus-within:border-primary/40 transition-colors">
-                        <DollarSign className="size-6 text-primary" />
-                      </div>
-                      <Input 
-                        type="number" 
-                        placeholder="e.g. 5000" 
-                        className="bg-background border-border h-20 md:h-24 text-4xl md:text-5xl font-black font-mono text-white pl-20 md:pl-24 rounded-2xl md:rounded-[2rem] focus:ring-1 focus:ring-primary/20 shadow-inner placeholder:text-white/5"
-                        value={amount}
-                        onChange={(e) => setAmount(e.target.value)}
-                      />
-                    </div>
-                    <div className="flex items-center gap-2 bg-white/5 p-4 rounded-xl border border-border">
-                       <ShieldCheck className="size-4 text-primary" />
-                       <p className="text-[10px] text-white/40 font-black uppercase tracking-widest italic">Minimum Deposit Requirement: <span className="text-white font-black">$100.00</span></p>
-                    </div>
-                 </div>
-               ) : (
-                 <div className="space-y-4">
-                    <Label className="text-[10px] text-white/40 font-black uppercase tracking-widest">Payment Amount ({activationCurrency})</Label>
-                    <div className="relative">
-                      <div className="absolute left-6 top-1/2 -translate-y-1/2 size-10 bg-white/5 rounded-xl flex items-center justify-center border border-border">
-                        <DollarSign className="size-6 text-primary" />
-                      </div>
-                      <Input 
-                        type="text" 
-                        readOnly
-                        disabled
-                        className="bg-background border-border h-16 md:h-20 text-3xl md:text-4xl font-black font-mono text-white pl-20 rounded-2xl shadow-inner cursor-not-allowed opacity-90"
-                        value={`${activationCurrency}${activationFee.toLocaleString()}`}
-                      />
-                    </div>
-                    <p className="text-[10px] font-mono text-white/40 uppercase tracking-wider">
-                      * This amount is dynamically configured by Goldbrick administration.
-                    </p>
-                 </div>
-               )}
-
-               <Button 
-                 onClick={() => setStep(2)} 
-                 disabled={!selectedWallet || (!isActivation && (!amount || parseFloat(amount) < 10))} 
-                 className="w-full h-16 md:h-20 bg-primary text-primary-foreground font-black text-[10px] md:text-base uppercase tracking-widest rounded-2xl shadow-xl shadow-primary/20 hover:scale-[1.01] transition-all hover:shadow-primary/40 flex items-center justify-center gap-2 cursor-pointer"
-               >
-                 PROCEED TO PAYMENT <ArrowRight className="size-4 md:size-5" />
-               </Button>
             </CardContent>
           </Card>
         )}
 
-        {/* STEP 2: Payment Details, Repository Address & Proof Upload */}
-        {step === 2 && selectedWallet && (
-          <div className="space-y-8 animate-in fade-in slide-in-from-bottom-5">
-            <Card className="bg-card border-border shadow-2xl rounded-[2.5rem] overflow-hidden border-t-4 border-t-primary border">
-               <CardHeader className="text-center p-8 md:p-10 border-b border-border bg-white/5">
-                  <CardTitle className="text-3xl md:text-5xl font-black italic tracking-tighter uppercase vibrant-text">
-                    {isActivation ? 'Activate Account' : 'Final Audit'}
-                  </CardTitle>
-                  <CardDescription className="text-white/40 font-bold text-[10px] uppercase tracking-widest mt-3">
-                    TRANSFER {isActivation ? `${activationCurrency}${activationFee.toLocaleString()}` : `${amount} USD EQUIVALENT`} TO THE ADDRESS BELOW
-                  </CardDescription>
-               </CardHeader>
-               <CardContent className="flex flex-col items-center p-8 md:p-10 space-y-8 md:space-y-10">
-                  <div className="p-8 bg-background rounded-[3rem] shadow-2xl relative group border-4 border-white/5">
-                     {selectedWallet.qrCodeUrl ? (
-                        <img src={selectedWallet.qrCodeUrl} alt="QR Code" className="size-[240px] object-contain rounded-xl" />
-                     ) : (
-                        <QRCodeSVG value={selectedWallet.address} size={240} className="rounded-xl" />
-                     )}
-                     <div className="absolute inset-0 bg-background/40 opacity-0 group-hover:opacity-100 transition-opacity rounded-[2rem] flex items-center justify-center backdrop-blur-[2px]">
-                        <QrCode className="size-20 text-primary opacity-40 animate-pulse" />
-                     </div>
-                  </div>
-                  
-                  <div className="w-full space-y-10">
-                    <div className="space-y-4 text-center">
-                       <Label className="text-[10px] text-white/40 font-black uppercase tracking-[0.3em]">Official {selectedWallet.currency} Repository ({selectedWallet.network})</Label>
-                       <div className="flex items-center gap-3 bg-white/5 border-2 border-border p-6 rounded-[1.5rem] group relative overflow-hidden shadow-inner">
-                          <div className="absolute inset-0 bg-primary opacity-[0.03] translate-x-[-100%] group-hover:translate-x-[0%] transition-transform duration-700" />
-                          <span className="text-sm md:text-lg font-black font-mono break-all text-white flex-1 z-10 select-all px-2">{selectedWallet.address}</span>
-                          <Button size="icon" variant="ghost" onClick={handleCopy} className="size-14 rounded-2xl bg-background text-primary border border-border hover:bg-primary hover:text-primary-foreground hover:border-primary transition-all z-10 shadow-sm cursor-pointer">
-                            <Copy className="size-6" />
-                          </Button>
-                       </div>
-                    </div>
-
-                    <div className="bg-white/5 p-8 rounded-[2rem] border border-border space-y-4 relative overflow-hidden shadow-sm">
-                       <div className="absolute top-0 right-0 p-6 opacity-5 rotate-12">
-                          <ShieldCheck className="size-20" />
-                       </div>
-                       <div className="flex items-center gap-3 text-primary relative z-10">
-                          <ShieldCheck className="size-6" />
-                          <span className="text-xs font-black uppercase tracking-widest italic">Security Directives</span>
-                       </div>
-                       <p className="text-[11px] text-white/40 font-bold leading-relaxed uppercase relative z-10">
-                         {config?.depositInstruction || "Transfer the exact activation amount to the secured vault address above. Upload your clear payment receipt for administrator review."}
-                       </p>
-                    </div>
-
-                    <div className="space-y-8 pt-10 border-t border-border">
-                       <div className="space-y-4">
-                          <Label className="text-[10px] text-white/40 font-black uppercase tracking-widest">Digital Signature Hash / TXID (Optional)</Label>
-                          <div className="relative">
-                            <div className="absolute left-6 top-1/2 -translate-y-1/2 size-8 bg-white/5 rounded-lg flex items-center justify-center border border-border">
-                              <Wallet className="size-4 text-primary" />
-                            </div>
-                            <Input 
-                              placeholder="PASTE BLOCKCHAIN HASH OR TRANSACTION REF" 
-                              className="bg-background border-border h-16 pl-16 rounded-2xl font-mono text-sm uppercase tracking-widest text-white placeholder:text-white/10 shadow-sm font-bold"
-                              value={txHash}
-                              onChange={(e) => setTxHash(e.target.value)}
-                            />
-                          </div>
-                       </div>
-                       
-                       <div className="space-y-4">
-                          <Label className="text-[10px] text-white/40 font-black uppercase tracking-widest">Upload Payment Proof (SCREENSHOT / RECEIPT) *</Label>
-                          <div className="relative">
-                             <Input 
-                                type="file" 
-                                className="hidden" 
-                                id="receipt" 
-                                onChange={handleFileUpload}
-                                accept="image/*,application/pdf"
-                             />
-                             <Label 
-                                htmlFor="receipt" 
-                                className="flex items-center justify-center gap-4 bg-white/5 border-2 border-border border-dashed py-16 rounded-[2.5rem] cursor-pointer hover:border-primary transition-all group overflow-hidden relative shadow-inner"
-                             >
-                                <div className="absolute inset-0 bg-primary/5 opacity-0 group-hover:opacity-100 transition-opacity" />
-                                {isUploading ? (
-                                  <div className="flex flex-col items-center gap-4">
-                                    <div className="size-10 border-4 border-primary border-t-transparent rounded-full animate-spin" />
-                                    <span className="text-xs font-black uppercase tracking-[0.2em] text-primary">Uploading Receipt Proof...</span>
-                                  </div>
-                                ) : receiptUrl ? (
-                                  <div className="flex flex-col items-center gap-4 text-green-500 font-black uppercase tracking-[0.2em] animate-in zoom-in">
-                                    <div className="size-16 bg-green-500/10 rounded-full flex items-center justify-center border border-green-500/30 shadow-lg shadow-green-500/20">
-                                       <CheckCircle2 className="size-10 text-green-400" /> 
-                                    </div>
-                                    <span className="text-sm">Payment Proof Ready</span>
-                                    <span className="text-[10px] font-mono text-white/40">Click to change file</span>
-                                  </div>
-                                ) : (
-                                  <div className="flex flex-col items-center gap-6 text-center">
-                                     <div className="size-20 bg-background rounded-3xl flex items-center justify-center border border-border shadow-md group-hover:scale-110 transition-transform">
-                                        <Upload className="size-10 text-white/20 group-hover:text-primary transition-colors" /> 
-                                     </div>
-                                     <div className="space-y-2">
-                                       <span className="text-xs font-black uppercase tracking-[0.2em] text-white/40 group-hover:text-white transition-colors">Choose File or Click to Upload</span>
-                                       <p className="text-[9px] text-white/20 uppercase font-bold tracking-widest">Accepted: PNG, JPG, PDF (MAX 5MB)</p>
-                                     </div>
-                                  </div>
-                                )}
-                             </Label>
-                          </div>
-                       </div>
-                    </div>
-                  </div>
-                  
-                  <div className="w-full flex flex-col gap-6 pt-6">
-                    <Button 
-                      onClick={handleSubmitDeposit} 
-                      disabled={loading || !receiptUrl} 
-                      className="w-full h-16 md:h-20 bg-primary text-primary-foreground font-black text-[10px] md:text-base uppercase tracking-widest rounded-2xl shadow-2xl shadow-primary/30 hover:scale-[1.01] transition-all hover:shadow-primary/50 flex items-center justify-center cursor-pointer"
-                    >
-                      {loading ? (
-                        isActivation ? 'SUBMITTING ACTIVATION REQUEST...' : 'AUDITING TRANSACTION...'
-                      ) : (
-                        isActivation ? 'SUBMIT ACTIVATION REQUEST' : 'DEPLOY CAPITAL NOW'
-                      )}
-                    </Button>
-                    <Button variant="ghost" onClick={() => setStep(1)} className="w-full text-white/40 font-black uppercase text-xs tracking-widest hover:text-white transition-colors h-12 cursor-pointer">
-                      <ChevronLeft className="size-4 mr-1" /> Return to Selection
-                    </Button>
-                  </div>
-               </CardContent>
-            </Card>
+        {/* Activation Mode: Previous Rejection Notice */}
+        {isActivation && existingActivationReq?.status === 'rejected' && !submitted && (
+          <div className="bg-red-500/10 border border-red-500/25 rounded-2xl p-5 flex items-start gap-3.5">
+            <AlertCircle className="size-5 text-red-400 shrink-0 mt-0.5" />
+            <div className="space-y-1 text-sm">
+              <p className="font-semibold text-red-300">Previous Activation Review Notice</p>
+              <p className="text-white/75">
+                {existingActivationReq.rejectionReason
+                  ? `Audit Note: "${existingActivationReq.rejectionReason}"`
+                  : 'Your previous activation payment could not be verified. Please check the wallet details and submit a clear receipt.'}
+              </p>
+            </div>
           </div>
         )}
 
-        {/* STEP 3: Submission Confirmation */}
-        {step === 3 && (
-          <Card className="bg-card border-border text-center py-20 rounded-[3.5rem] shadow-3xl border animate-in zoom-in duration-500">
-             <CardContent className="space-y-8">
-                <div className="size-28 bg-amber-500/10 text-amber-400 rounded-full flex items-center justify-center mx-auto ring-[14px] ring-amber-500/10 shadow-lg shadow-amber-500/10 animate-bounce">
-                   <CheckCircle2 className="size-14" />
+        {/* Confirmation Screen */}
+        {submitted && (
+          <Card className="bg-[#0A0F18]/90 border-white/10 rounded-2xl shadow-2xl max-w-xl mx-auto">
+            <CardContent className="p-8 sm:p-10 text-center space-y-6">
+              <div className="size-16 rounded-2xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 flex items-center justify-center mx-auto">
+                <CheckCircle2 className="size-8" />
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-xs font-medium text-amber-400 uppercase tracking-wider">Pending Verification</p>
+                <h2 className="text-2xl sm:text-3xl font-bold text-white">
+                  {isActivation ? 'Activation Proof Received' : 'Deposit Proof Submitted'}
+                </h2>
+                <p className="text-sm text-white/65 leading-relaxed max-w-md mx-auto">
+                  {isActivation
+                    ? 'Your activation payment proof is queued for review. Your account privileges will unlock as soon as our team verifies the transfer.'
+                    : `Your ${selectedWallet?.currency || 'crypto'} transfer proof has been submitted. Our settlement team will verify the transaction and credit the exact USD amount received directly to your balance.`}
+                </p>
+              </div>
+
+              <div className="bg-white/[0.03] border border-white/[0.08] rounded-xl p-4 grid grid-cols-2 gap-3 text-left text-xs">
+                <div>
+                  <span className="text-white/45 block">Asset / Network</span>
+                  <span className="font-semibold text-white font-mono">
+                    {selectedWallet?.currency} · {selectedWallet?.network}
+                  </span>
                 </div>
-                <div className="space-y-3">
-                  <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-400 text-[10px] font-black uppercase tracking-widest">
-                    Status: PENDING REVIEW
+                <div>
+                  <span className="text-white/45 block">Credit Method</span>
+                  <span className="font-semibold text-amber-400">
+                    {isActivation ? `${activationCurrency}${activationFee.toLocaleString()}` : 'Verified On-Chain Amount'}
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex flex-col sm:flex-row gap-3 pt-2">
+                <Button
+                  onClick={() => navigate('/dashboard')}
+                  className="flex-1 h-11 bg-primary text-slate-950 hover:bg-amber-400 font-semibold text-sm rounded-xl cursor-pointer"
+                >
+                  Back to Dashboard
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={resetForAnotherDeposit}
+                  className="flex-1 h-11 border-white/10 bg-white/[0.03] hover:bg-white/[0.08] text-white font-medium text-sm rounded-xl cursor-pointer"
+                >
+                  New Deposit
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Main Payment Interface */}
+        {!submitted && (!isActivation || existingActivationReq?.status !== 'pending' || resubmitting) && (
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+            {/* Left Column (7 cols): Asset Selection + Wallet QR & Address */}
+            <div className="lg:col-span-7 space-y-6">
+              {/* Activation Fee Summary Card (only when isActivation) */}
+              {isActivation && (
+                <div className="bg-gradient-to-br from-amber-500/12 via-[#0A0F18] to-[#0A0F18] border border-amber-500/30 rounded-2xl p-5 sm:p-6 flex items-center justify-between gap-4">
+                  <div className="space-y-1">
+                    <span className="text-xs font-medium text-amber-400">Required Activation Payment</span>
+                    <div className="text-3xl font-bold font-mono tabular-nums text-white">
+                      {activationCurrency}{activationFee.toLocaleString()}
+                    </div>
+                    <p className="text-xs text-white/55">One-time fee configured by GoldBrick administration</p>
                   </div>
-                  <h2 className="text-3xl md:text-4xl font-black italic uppercase tracking-tighter vibrant-text leading-tight">
-                    {isActivation ? 'Activation Request Submitted' : 'Syncing Processed'}
-                  </h2>
-                  <p className="text-white/60 font-medium text-xs md:text-sm max-w-md mx-auto leading-relaxed">
-                    {isActivation ? (
-                      <>
-                        Your payment proof has been submitted successfully and is awaiting review. Our administrative team will verify your payment and activate your account shortly.
-                      </>
+                  <div className="hidden sm:flex size-12 rounded-xl bg-amber-500/15 border border-amber-500/25 items-center justify-center text-amber-400 shrink-0">
+                    <ShieldCheck className="size-6" />
+                  </div>
+                </div>
+              )}
+
+              {/* Step 1: Select Crypto Network */}
+              <Card className="bg-[#0A0F18]/90 border-white/10 rounded-2xl shadow-xl">
+                <CardHeader className="p-5 sm:p-6 pb-4 border-b border-white/[0.06]">
+                  <CardTitle className="text-base sm:text-lg font-semibold text-white flex items-center justify-between">
+                    <span>1. Select Cryptocurrency Wallet</span>
+                    <span className="text-xs font-mono text-white/45 font-normal">{wallets.length} available</span>
+                  </CardTitle>
+                  <CardDescription className="text-xs text-white/50">
+                    Choose the coin and network you want to transfer with
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="p-5 sm:p-6">
+                  {wallets.length === 0 ? (
+                    <div className="py-10 text-center text-sm text-white/45 border border-dashed border-white/10 rounded-xl">
+                      Loading payment wallets...
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {wallets.map((w) => {
+                        const isSelected = selectedWallet?.id === w.id;
+                        return (
+                          <button
+                            key={w.id}
+                            type="button"
+                            onClick={() => setSelectedWallet(w)}
+                            className={`p-4 rounded-xl border text-left transition-all flex items-center justify-between gap-3 cursor-pointer ${
+                              isSelected
+                                ? 'bg-amber-500/10 border-primary shadow-[0_0_0_1px_rgba(245,158,11,0.4)]'
+                                : 'bg-white/[0.02] border-white/[0.08] hover:border-white/20 hover:bg-white/[0.04]'
+                            }`}
+                          >
+                            <div className="flex items-center gap-3 min-w-0">
+                              <div
+                                className={`size-10 rounded-xl flex items-center justify-center font-mono font-bold text-sm shrink-0 ${
+                                  isSelected
+                                    ? 'bg-primary text-slate-950'
+                                    : 'bg-white/[0.06] text-white/65 border border-white/10'
+                                }`}
+                              >
+                                {(w.symbol || w.currency || 'C').slice(0, 4)}
+                              </div>
+                              <div className="min-w-0">
+                                <div className={`font-semibold text-sm truncate ${isSelected ? 'text-white' : 'text-white/80'}`}>
+                                  {w.currency}
+                                </div>
+                                <div className="text-xs font-mono text-white/45 truncate">
+                                  {w.network}
+                                </div>
+                              </div>
+                            </div>
+                            {isSelected && <CheckCircle2 className="size-5 text-primary shrink-0" />}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* Step 2: Wallet Address & QR Code */}
+              {selectedWallet && (
+                <Card className="bg-[#0A0F18]/90 border-white/10 rounded-2xl shadow-xl">
+                  <CardHeader className="p-5 sm:p-6 pb-4 border-b border-white/[0.06]">
+                    <CardTitle className="text-base sm:text-lg font-semibold text-white">
+                      2. Send {selectedWallet.currency} ({selectedWallet.network})
+                    </CardTitle>
+                    <CardDescription className="text-xs text-white/50">
+                      Scan the QR code or copy the official repository address below
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="p-5 sm:p-6 space-y-6">
+                    <div className="flex flex-col sm:flex-row items-center gap-6">
+                      {/* Crisp White QR Frame */}
+                      <div className="p-3.5 bg-white rounded-2xl shadow-lg shrink-0">
+                        {selectedWallet.qrCodeUrl ? (
+                          <img
+                            src={selectedWallet.qrCodeUrl}
+                            alt={`${selectedWallet.currency} QR Code`}
+                            className="size-40 sm:size-44 object-contain"
+                          />
+                        ) : (
+                          <QRCodeSVG value={selectedWallet.address} size={172} />
+                        )}
+                      </div>
+
+                      {/* Address + Copy Controls */}
+                      <div className="flex-1 w-full space-y-4">
+                        <div className="space-y-1.5">
+                          <Label className="text-xs font-medium text-white/55">
+                            Official {selectedWallet.currency} Address · {selectedWallet.network}
+                          </Label>
+                          <div className="flex items-center gap-2 bg-black/50 border border-white/10 p-3 rounded-xl">
+                            <span className="font-mono text-xs sm:text-sm text-white break-all flex-1 select-all">
+                              {selectedWallet.address}
+                            </span>
+                            <Button
+                              type="button"
+                              size="sm"
+                              onClick={handleCopy}
+                              className={`h-9 px-3 rounded-lg font-medium text-xs shrink-0 cursor-pointer transition-colors ${
+                                copied
+                                  ? 'bg-emerald-500 text-white hover:bg-emerald-500'
+                                  : 'bg-white/10 text-white hover:bg-primary hover:text-slate-950'
+                              }`}
+                            >
+                              {copied ? (
+                                <>
+                                  <Check className="size-3.5 mr-1" /> Copied
+                                </>
+                              ) : (
+                                <>
+                                  <Copy className="size-3.5 mr-1" /> Copy
+                                </>
+                              )}
+                            </Button>
+                          </div>
+                        </div>
+
+                        <div className="p-3.5 rounded-xl bg-amber-500/[0.06] border border-amber-500/20 flex items-start gap-2.5 text-xs text-white/70 leading-relaxed">
+                          <Info className="size-4 text-amber-400 shrink-0 mt-0.5" />
+                          <span>
+                            {config?.depositInstruction ||
+                              `Send only ${selectedWallet.currency} via the ${selectedWallet.network} network. Once you submit proof, our audit team confirms the transfer and credits the exact USD value received.`}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+            </div>
+
+            {/* Right Column (5 cols): Submit Proof & Finalize */}
+            <div className="lg:col-span-5 space-y-5 lg:sticky lg:top-24">
+              <Card className="bg-[#0A0F18]/90 border-white/10 rounded-2xl shadow-xl">
+                <CardHeader className="p-5 sm:p-6 pb-4 border-b border-white/[0.06]">
+                  <CardTitle className="text-base sm:text-lg font-semibold text-white">
+                    3. Submit Payment Proof
+                  </CardTitle>
+                  <CardDescription className="text-xs text-white/50">
+                    {isActivation
+                      ? 'Upload your activation transfer receipt to verify your account'
+                      : 'Upload a screenshot or PDF of your completed crypto transfer'}
+                  </CardDescription>
+                </CardHeader>
+
+                <CardContent className="p-5 sm:p-6 space-y-5">
+                  {/* Payment Proof Dropzone */}
+                  <div className="space-y-2">
+                    <Label className="text-xs font-medium text-white/75">
+                      Payment Receipt / Screenshot *
+                    </Label>
+                    <Input
+                      type="file"
+                      className="hidden"
+                      id="receipt"
+                      onChange={handleFileUpload}
+                      accept="image/*,application/pdf"
+                    />
+                    <Label
+                      htmlFor="receipt"
+                      className={`flex flex-col items-center justify-center gap-3 border-2 border-dashed rounded-xl p-6 cursor-pointer transition-all text-center ${
+                        receiptUrl
+                          ? 'border-emerald-500/40 bg-emerald-500/[0.05]'
+                          : 'border-white/15 bg-white/[0.02] hover:border-primary/50 hover:bg-white/[0.04]'
+                      }`}
+                    >
+                      {isUploading ? (
+                        <div className="py-4 flex flex-col items-center gap-2.5">
+                          <div className="size-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                          <span className="text-xs font-medium text-primary">Uploading receipt...</span>
+                        </div>
+                      ) : receiptUrl ? (
+                        <div className="w-full space-y-3">
+                          {receiptUrl.endsWith('.pdf') ? (
+                            <div className="size-12 rounded-xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center mx-auto text-emerald-400">
+                              <FileCheck2 className="size-6" />
+                            </div>
+                          ) : (
+                            <img
+                              src={receiptUrl}
+                              alt="Uploaded payment proof"
+                              className="max-h-40 w-auto mx-auto rounded-lg border border-white/10 object-contain"
+                            />
+                          )}
+                          <div className="flex items-center justify-center gap-1.5 text-xs font-semibold text-emerald-400">
+                            <CheckCircle2 className="size-4" />
+                            <span>Receipt Ready · Click to replace</span>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="py-3 space-y-2">
+                          <div className="size-11 rounded-xl bg-white/[0.06] border border-white/10 flex items-center justify-center mx-auto text-white/60">
+                            <Upload className="size-5" />
+                          </div>
+                          <div>
+                            <p className="text-sm font-medium text-white">Click to upload receipt</p>
+                            <p className="text-xs text-white/40 mt-0.5">PNG, JPG or PDF (max 5MB)</p>
+                          </div>
+                        </div>
+                      )}
+                    </Label>
+                  </div>
+
+                  {/* Optional Transaction Hash */}
+                  <div className="space-y-2">
+                    <Label htmlFor="txHash" className="text-xs font-medium text-white/75">
+                      Transaction Hash / TXID <span className="text-white/40 font-normal">(Optional)</span>
+                    </Label>
+                    <div className="relative">
+                      <Hash className="absolute left-3.5 top-1/2 -translate-y-1/2 size-4 text-white/35" />
+                      <Input
+                        id="txHash"
+                        placeholder="Paste blockchain TX hash if available"
+                        className="bg-black/40 border-white/10 h-11 pl-10 rounded-xl font-mono text-xs text-white placeholder:text-white/25"
+                        value={txHash}
+                        onChange={(e) => setTxHash(e.target.value)}
+                      />
+                    </div>
+                  </div>
+
+                  {/* How Settlement Works Summary */}
+                  {!isActivation && (
+                    <div className="p-3.5 rounded-xl bg-white/[0.03] border border-white/[0.07] space-y-1.5 text-xs">
+                      <div className="flex items-center gap-2 font-medium text-white/85">
+                        <ShieldCheck className="size-4 text-primary shrink-0" />
+                        <span>Automatic USD Settlement</span>
+                      </div>
+                      <p className="text-white/50 leading-relaxed">
+                        You do not need to enter an amount upfront. Our admin desk confirms the exact USD value received on-chain and credits your wallet balance.
+                      </p>
+                    </div>
+                  )}
+
+                  <Button
+                    type="button"
+                    onClick={handleSubmitDeposit}
+                    disabled={loading || isUploading || !receiptUrl || !selectedWallet}
+                    className="w-full h-12 bg-primary text-slate-950 hover:bg-amber-400 font-semibold text-sm rounded-xl shadow-lg shadow-primary/20 flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                  >
+                    {loading ? (
+                      isActivation ? 'Submitting Activation...' : 'Submitting Deposit Proof...'
                     ) : (
                       <>
-                        Your injection of <span className="text-white font-black underline decoration-primary decoration-4 underline-offset-4">${amount}</span> is scheduled for audit. Expect fulfillment within 30-60 minutes.
+                        <span>{isActivation ? 'Submit Activation Proof' : 'Submit Deposit'}</span>
+                        <ArrowRight className="size-4" />
                       </>
                     )}
-                  </p>
-                </div>
-                <div className="pt-6 flex flex-col sm:flex-row items-center justify-center gap-4 max-w-sm mx-auto px-6">
-                   <Button onClick={() => navigate('/dashboard')} className="w-full h-14 bg-primary text-primary-foreground font-black uppercase tracking-[0.2em] rounded-2xl shadow-xl shadow-primary/20 hover:scale-105 transition-all text-xs cursor-pointer">
-                     BACK TO DASHBOARD
-                   </Button>
-                   <Button variant="ghost" onClick={() => navigate('/transactions')} className="w-full h-14 uppercase text-xs font-black tracking-[0.2em] text-white/40 hover:text-white cursor-pointer">
-                     AUDIT LOGS
-                   </Button>
-                </div>
-             </CardContent>
-          </Card>
+                  </Button>
+
+                  {isActivation && resubmitting && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      onClick={() => setResubmitting(false)}
+                      className="w-full h-10 text-xs text-white/50 hover:text-white cursor-pointer"
+                    >
+                      <ChevronLeft className="size-3.5 mr-1" /> Return to status
+                    </Button>
+                  )}
+                </CardContent>
+              </Card>
+            </div>
+          </div>
         )}
       </div>
     </DashboardLayout>

@@ -1,32 +1,22 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { Logo } from '../components/Logo';
 import { motion, AnimatePresence } from 'motion/react';
 import { Link } from 'react-router-dom';
 import { Button } from '../components/ui/button';
-import { Card, CardContent } from '../components/ui/card';
-import { Badge } from '../components/ui/badge';
-import { 
-  Trophy, 
-  ShieldCheck, 
-  Zap, 
-  ArrowRight, 
-  Star, 
-  Download, 
-  TrendingUp, 
-  Lock, 
-  Layers, 
-  CheckCircle2, 
-  Sliders, 
-  ChevronDown, 
-  Sparkles,
+import {
+  ShieldCheck,
+  ArrowRight,
+  Star,
+  Download,
+  TrendingUp,
+  Lock,
+  CheckCircle2,
+  Sliders,
+  ChevronDown,
   ArrowUpRight,
-  ShieldAlert,
   Building2,
   Cpu,
-  Globe2,
-  Clock,
   Bot as BotIcon,
-  Activity,
   Menu,
   X
 } from 'lucide-react';
@@ -42,16 +32,15 @@ interface CryptoRate {
   name: string;
   price: string;
   change: string;
-  isPositive: boolean;
 }
 
 const LIVE_RATES: CryptoRate[] = [
-  { symbol: 'BTC', name: 'Bitcoin', price: '$96,420.50', change: '+3.84%', isPositive: true },
-  { symbol: 'ETH', name: 'Ethereum', price: '$2,780.12', change: '+2.91%', isPositive: true },
-  { symbol: 'SOL', name: 'Solana', price: '$198.45', change: '+5.42%', isPositive: true },
-  { symbol: 'BNB', name: 'BNB Smart', price: '$654.80', change: '+1.15%', isPositive: true },
-  { symbol: 'XAU', name: 'Gold / Troy Oz', price: '$2,894.20', change: '+0.78%', isPositive: true },
-  { symbol: 'USDT', name: 'Tether USD', price: '$1.00', change: '+0.01%', isPositive: true },
+  { symbol: 'BTC', name: 'Bitcoin', price: '$96,420.50', change: '+3.84%' },
+  { symbol: 'ETH', name: 'Ethereum', price: '$2,780.12', change: '+2.91%' },
+  { symbol: 'SOL', name: 'Solana', price: '$198.45', change: '+5.42%' },
+  { symbol: 'BNB', name: 'BNB Smart', price: '$654.80', change: '+1.15%' },
+  { symbol: 'XAU', name: 'Gold / oz', price: '$2,894.20', change: '+0.78%' },
+  { symbol: 'USDT', name: 'Tether', price: '$1.00', change: '+0.01%' },
 ];
 
 const DEFAULT_FALLBACK_PLANS = [
@@ -92,7 +81,7 @@ const DEFAULT_FALLBACK_PLANS = [
 
 const RECENT_ACTIVITIES = [
   { user: 'Arthur K.', amount: '$14,500.00', action: 'Yield Payout', time: '2m ago', flag: '🇬🇧' },
-  { user: 'Liam V.', amount: '$5,000.00', action: 'New Vault Deposit', time: '5m ago', flag: '🇺🇸' },
+  { user: 'Liam V.', amount: '$5,000.00', action: 'Vault Deposit', time: '5m ago', flag: '🇺🇸' },
   { user: 'Helena S.', amount: '$28,400.00', action: 'Yield Payout', time: '11m ago', flag: '🇨🇭' },
   { user: 'Dmitri P.', amount: '$8,200.00', action: 'Account Activated', time: '14m ago', flag: '🇦🇪' },
   { user: 'Sophie M.', amount: '$3,450.00', action: 'Yield Payout', time: '18m ago', flag: '🇫🇷' },
@@ -100,999 +89,925 @@ const RECENT_ACTIVITIES = [
 
 export default function LandingPage() {
   const { isInstallable, handleInstallClick, showIOSInstructions, setShowIOSInstructions } = usePWA();
-  
-  // Real Firestore Admin Plans Listener
+
   const [adminPlans, setAdminPlans] = useState<any[]>(DEFAULT_FALLBACK_PLANS);
   const [selectedPlanIndex, setSelectedPlanIndex] = useState<number>(0);
   const [calcAmount, setCalcAmount] = useState<number>(5000);
   const [mobileMenuOpen, setMobileMenuOpen] = useState<boolean>(false);
+  const [expandedFaq, setExpandedFaq] = useState<number | null>(0);
 
   useEffect(() => {
-    const unsub = onSnapshot(collection(db, 'plans'), (snap) => {
-      if (!snap.empty) {
-        const loaded = snap.docs.map(doc => ({ id: doc.id, ...doc.data() as any }))
-          .sort((a, b) => (a.minDeposit || 0) - (b.minDeposit || 0));
-        setAdminPlans(loaded);
-        if (loaded[0]?.minDeposit) {
-          setCalcAmount(Math.max(500, loaded[0].minDeposit));
+    const unsub = onSnapshot(
+      collection(db, 'plans'),
+      (snap) => {
+        if (!snap.empty) {
+          const loaded = snap.docs
+            .map((d) => ({ id: d.id, ...(d.data() as any) }))
+            .sort((a, b) => (a.minDeposit || 0) - (b.minDeposit || 0));
+          setAdminPlans(loaded);
+          if (loaded[0]?.minDeposit) {
+            setCalcAmount(Math.max(500, loaded[0].minDeposit));
+          }
         }
+      },
+      (err) => {
+        console.warn('Real plans snapshot notice:', err);
       }
-    }, (err) => {
-      console.warn('Real plans snapshot notice:', err);
-    });
+    );
 
     return () => unsub();
   }, []);
 
   const activePlan = adminPlans[selectedPlanIndex] || adminPlans[0] || DEFAULT_FALLBACK_PLANS[0];
-
-  // Dynamic return calculations matching real InvestPage formula
   const minDeposit = activePlan.minDeposit || 100;
   const maxDeposit = activePlan.maxDeposit || 100000;
   const profitValue = activePlan.profitValue || activePlan.dailyROI || activePlan.roi || 0;
   const isFixedProfit = activePlan.profitType === 'fixed';
 
-  let calculatedProfit = 0;
-  if (isFixedProfit) {
-    calculatedProfit = (calcAmount / (minDeposit || 1)) * profitValue;
-  } else {
-    calculatedProfit = (calcAmount * profitValue) / 100;
-  }
+  const calculatedProfit = isFixedProfit
+    ? (calcAmount / (minDeposit || 1)) * profitValue
+    : (calcAmount * profitValue) / 100;
 
-  const durationText = activePlan.durationDays 
-    ? `${activePlan.durationDays} Days` 
-    : activePlan.durationHours 
-    ? `${activePlan.durationHours} Hours` 
+  const durationText = activePlan.durationDays
+    ? `${activePlan.durationDays} Days`
+    : activePlan.durationHours
+    ? `${activePlan.durationHours} Hours`
     : '8-Hour Cycle';
 
   const expectedTotalReturn = calcAmount + calculatedProfit;
 
-  // Accordion FAQ state
-  const [expandedFaq, setExpandedFaq] = useState<number | null>(0);
-
   const faqs = [
     {
       q: 'How does Goldbrick generate consistent investment profits?',
-      a: 'Goldbrick uses 24/7 automated trading robots that buy and sell across top exchanges like Binance and Coinbase, capturing price differences with full capital insurance.'
+      a: 'Goldbrick deploys automated trading robots operating 24/7 across major exchanges like Binance and Coinbase, capturing liquidity spreads with strict capital controls.'
     },
     {
-      q: 'Are the plans and returns on this page real?',
-      a: 'Yes. All tiers, entry minimums, durations, and returns shown are live and directly match the real plans configured in our database.'
+      q: 'Are the plans and returns displayed here live?',
+      a: 'Yes. Every investment tier, entry range, duration cycle, and projected return updates live from our active platform database.'
     },
     {
-      q: 'How quickly are withdrawals processed?',
-      a: 'Withdrawals are processed 24/7. Crypto withdrawals (Bitcoin, Ethereum, USDT) are sent directly to your wallet, usually arriving in under 15 minutes.'
+      q: 'How quickly are crypto withdrawals processed?',
+      a: 'Withdrawals operate 24/7. Bitcoin, Ethereum, and USDT transfers are routed directly to your external wallet, typically settling in under 15 minutes.'
     },
     {
-      q: 'Is my deposit protected?',
-      a: 'Yes. All principal balances are backed 100% by our reserve guarantee fund stored safely in secure cold hardware vaults.'
+      q: 'How are deposited funds protected?',
+      a: 'Over 98% of client reserves are held in offline cold hardware vaults backed by our 1:1 liquidity reserve guarantee.'
     }
   ];
 
   return (
-    <div className="min-h-screen relative bg-[#05080D] text-foreground font-sans overflow-x-hidden selection:bg-primary/20 selection:text-primary w-full">
+    <div className="min-h-screen relative bg-[#05080D] text-white font-sans overflow-x-hidden selection:bg-primary/20 selection:text-primary w-full">
       <Cinematic3DBackground />
       <AmbientGoldLighting />
-      <IOSInstallGuide 
-        isOpen={showIOSInstructions} 
-        onClose={() => setShowIOSInstructions(false)} 
+      <IOSInstallGuide
+        isOpen={showIOSInstructions}
+        onClose={() => setShowIOSInstructions(false)}
       />
 
-      {/* Main Content Wrapper (z-10 above 3D background & lighting) */}
       <div className="relative z-10 w-full">
-        {/* Top Asset Ticker Strip */}
-      <div className="w-full bg-[#05080D]/70 border-b border-white/5 py-2 px-3 sm:px-4 backdrop-blur-md">
-        <div className="max-w-7xl mx-auto flex items-center justify-between text-xs overflow-x-auto no-scrollbar gap-4 sm:gap-6">
-          <div className="flex items-center gap-1.5 shrink-0">
-            <span className="relative flex h-2 w-2">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-            </span>
-            <span className="text-[9px] sm:text-[10px] font-mono font-bold tracking-widest uppercase text-emerald-400">
-              MARKETS LIVE
-            </span>
-          </div>
-
-          <div className="flex items-center gap-4 sm:gap-6 shrink-0">
-            {LIVE_RATES.map((rate, i) => (
-              <div key={i} className="flex items-center gap-1.5 font-mono text-[11px] sm:text-xs">
-                <span className="font-bold text-white/90">{rate.symbol}</span>
-                <span className="text-white/70">{rate.price}</span>
-                <span className="text-[10px] font-bold text-emerald-400 flex items-center">
-                  <ArrowUpRight size={10} className="mr-0.5" />
-                  {rate.change}
-                </span>
-              </div>
-            ))}
-          </div>
-
-          <div className="hidden lg:flex items-center gap-2 text-white/50 text-[11px] font-mono shrink-0">
-            <ShieldCheck size={13} className="text-primary" />
-            <span>256-Bit SSL Insured</span>
-          </div>
-        </div>
-      </div>
-
-      {/* Primary Sticky Header */}
-      <header className="sticky top-0 z-50 backdrop-blur-xl bg-[#05080D]/80 border-b border-white/10">
-        <nav className="flex items-center justify-between px-4 sm:px-6 py-3.5 sm:py-4 max-w-7xl mx-auto w-full">
-          <Link to="/" className="flex items-center shrink-0">
-            <Logo className="h-8 sm:h-9 md:h-10" />
-          </Link>
-
-          {/* Desktop Nav Links */}
-          <div className="hidden md:flex items-center gap-6 lg:gap-8 text-xs font-bold uppercase tracking-wider text-white/70">
-            <a href="#vaults" className="hover:text-primary transition-colors">Investment Plans</a>
-            <a href="#calculator" className="hover:text-primary transition-colors">Profit Calculator</a>
-            <a href="#trading-bots" className="hover:text-primary transition-colors">Trading Bots</a>
-            <a href="#security" className="hover:text-primary transition-colors">Security</a>
-            <a href="#activity" className="hover:text-primary transition-colors">Live Activity</a>
-            <a href="#faq" className="hover:text-primary transition-colors">FAQ</a>
-          </div>
-
-          {/* Desktop Actions */}
-          <div className="hidden sm:flex items-center gap-2.5 sm:gap-3">
-            {isInstallable && (
-              <Button 
-                variant="outline" 
-                size="sm" 
-                onClick={handleInstallClick}
-                className="hidden lg:flex border-primary/40 text-primary hover:bg-primary/10 font-bold h-9 px-3 rounded-xl text-xs gap-1.5"
-              >
-                <Download size={13} />
-                <span>Install</span>
-              </Button>
-            )}
-            <Link to="/login">
-              <Button variant="ghost" className="text-xs font-bold uppercase tracking-wider text-white/80 hover:text-white hover:bg-white/5 h-9 px-3.5 rounded-xl">
-                Login
-              </Button>
-            </Link>
-            <Link to="/register">
-              <Button className="bg-primary text-slate-950 hover:bg-amber-400 font-black text-xs uppercase tracking-wider h-9 px-4.5 rounded-xl shadow-lg shadow-primary/20 transition-all hover:scale-105">
-                Open Account
-              </Button>
-            </Link>
-          </div>
-
-          {/* Mobile Menu Button */}
-          <div className="flex sm:hidden items-center gap-2">
-            <Link to="/register">
-              <Button size="sm" className="bg-primary text-slate-950 font-black text-[11px] uppercase tracking-wider h-8 px-3 rounded-lg shadow-md">
-                Register
-              </Button>
-            </Link>
-            <button
-              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              className="p-2 rounded-lg bg-white/5 border border-white/10 text-white hover:text-primary focus:outline-none"
-              aria-label="Toggle navigation menu"
-            >
-              {mobileMenuOpen ? <X size={20} /> : <Menu size={20} />}
-            </button>
-          </div>
-        </nav>
-
-        {/* Mobile Dropdown Menu Drawer */}
-        <AnimatePresence>
-          {mobileMenuOpen && (
-            <motion.div
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: 'auto' }}
-              exit={{ opacity: 0, height: 0 }}
-              className="sm:hidden border-b border-border/80 bg-background/95 px-6 py-5 space-y-4 backdrop-blur-2xl"
-            >
-              <div className="flex flex-col space-y-3 text-sm font-bold uppercase tracking-wider text-white/80">
-                <a href="#vaults" onClick={() => setMobileMenuOpen(false)} className="hover:text-primary py-1">Investment Plans</a>
-                <a href="#calculator" onClick={() => setMobileMenuOpen(false)} className="hover:text-primary py-1">Profit Calculator</a>
-                <a href="#trading-bots" onClick={() => setMobileMenuOpen(false)} className="hover:text-primary py-1">Trading Bots</a>
-                <a href="#security" onClick={() => setMobileMenuOpen(false)} className="hover:text-primary py-1">Security & Protection</a>
-                <a href="#activity" onClick={() => setMobileMenuOpen(false)} className="hover:text-primary py-1">Live Activity</a>
-                <a href="#faq" onClick={() => setMobileMenuOpen(false)} className="hover:text-primary py-1">FAQ</a>
-              </div>
-
-              <div className="pt-3 border-t border-white/10 flex flex-col gap-2.5">
-                <Link to="/login" onClick={() => setMobileMenuOpen(false)}>
-                  <Button variant="outline" className="w-full border-border text-white text-xs font-bold uppercase h-10 rounded-xl">
-                    Client Login
-                  </Button>
-                </Link>
-                <Link to="/register" onClick={() => setMobileMenuOpen(false)}>
-                  <Button className="w-full bg-primary text-slate-950 font-black text-xs uppercase h-10 rounded-xl shadow-lg shadow-primary/20">
-                    Open Free Account
-                  </Button>
-                </Link>
-                {isInstallable && (
-                  <Button 
-                    variant="ghost" 
-                    onClick={() => { setMobileMenuOpen(false); handleInstallClick(); }}
-                    className="w-full text-primary text-xs font-bold gap-2 h-9"
-                  >
-                    <Download size={14} /> Install Goldbrick App
-                  </Button>
-                )}
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </header>
-
-      {/* Hero Section */}
-      <section className="relative pt-12 sm:pt-20 md:pt-24 pb-16 sm:pb-20 px-4 sm:px-6 max-w-7xl mx-auto w-full">
-        <div className="absolute top-10 left-1/2 -translate-x-1/2 w-[320px] sm:w-[650px] h-[300px] sm:h-[350px] bg-primary/15 blur-[100px] sm:blur-[140px] rounded-full pointer-events-none -z-10" />
-
-        <div className="flex flex-col items-center text-center max-w-4xl mx-auto w-full">
-          {/* User Trust Badge */}
-          <div className="inline-flex items-center gap-2 px-3 sm:px-4 py-1.5 rounded-full bg-primary/10 border border-primary/30 text-primary text-[11px] sm:text-xs font-bold tracking-wider uppercase mb-6 sm:mb-8 shadow-inner max-w-full">
-            <Trophy size={14} className="text-primary shrink-0" />
-            <span className="truncate">Voted #1 Multi-Asset Investment Platform 2024</span>
-          </div>
-
-          <h1 className="text-3xl sm:text-5xl md:text-6xl lg:text-7xl font-['Outfit',sans-serif] font-black tracking-[-0.03em] leading-[1.08] sm:leading-[1.04] mb-5 sm:mb-6 px-2">
-            <span className="bg-gradient-to-r from-[#FFFDF7] via-[#FFF0C2] to-[#FBBF24] bg-clip-text text-transparent drop-shadow-[0_4px_24px_rgba(251,191,36,0.25)]">
-              Financial Freedom,
-            </span>{' '}
-            <br />
-            <span className="bg-gradient-to-r from-[#FDE68A] via-[#F59E0B] to-[#D97706] bg-clip-text text-transparent drop-shadow-[0_8px_32px_rgba(245,158,11,0.45)]">
-              Made Simple.
-            </span>
-          </h1>
-
-          <p className="text-sm sm:text-lg md:text-xl text-white/80 max-w-2xl leading-relaxed mb-8 sm:mb-10 font-medium px-2">
-            Experience the world's most transparent and secure trading platform. Smart automated returns, global asset management, and elite 24/7 support.
-          </p>
-
-          {/* Primary Action Buttons */}
-          <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 w-full sm:w-auto items-stretch sm:items-center justify-center px-4 sm:px-0 max-w-md sm:max-w-none">
-            <Link to="/register" className="w-full sm:w-auto">
-              <Button size="lg" className="w-full sm:w-auto bg-primary text-slate-950 hover:bg-amber-400 font-black text-xs sm:text-sm uppercase tracking-wider px-6 sm:px-9 h-12 sm:h-14 rounded-2xl shadow-xl shadow-primary/25 gap-2 transition-all hover:scale-105">
-                <span>Start Investing Now</span>
-                <ArrowRight size={18} />
-              </Button>
-            </Link>
-
-            <a href="#calculator" className="w-full sm:w-auto">
-              <Button size="lg" variant="outline" className="w-full sm:w-auto border-border bg-card/60 hover:bg-white/10 text-white font-bold text-xs sm:text-sm uppercase tracking-wider px-6 sm:px-8 h-12 sm:h-14 rounded-2xl backdrop-blur-md gap-2">
-                <Sliders size={16} className="text-primary" />
-                <span>Calculate Profit</span>
-              </Button>
-            </a>
-          </div>
-
-          {/* Trust Metric Strip */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-6 w-full mt-12 sm:mt-16 pt-8 sm:pt-10 border-t border-border/50 text-left">
-            <div className="p-3.5 sm:p-4 rounded-2xl bg-card/40 border border-border/60">
-              <span className="text-[9px] sm:text-[10px] font-mono uppercase tracking-widest text-white/40 block mb-1">Total Assets</span>
-              <span className="text-xl sm:text-2xl lg:text-3xl font-black text-white italic tracking-tight">$3.84B+</span>
-              <span className="text-[10px] font-mono text-emerald-400 flex items-center gap-1 mt-1">
-                <TrendingUp size={11} /> +18.4% YoY
+        {/* Top Market Feed Bar */}
+        <div className="w-full bg-[#05080D]/80 border-b border-white/[0.06] py-2 px-4 backdrop-blur-md">
+          <div className="max-w-7xl mx-auto flex items-center justify-between text-xs overflow-x-auto no-scrollbar gap-6">
+            <div className="flex items-center gap-2 shrink-0">
+              <span className="size-1.5 rounded-full bg-emerald-400" />
+              <span className="text-[11px] font-mono font-medium text-emerald-400">
+                Markets Live
               </span>
             </div>
 
-            <div className="p-3.5 sm:p-4 rounded-2xl bg-card/40 border border-border/60">
-              <span className="text-[9px] sm:text-[10px] font-mono uppercase tracking-widest text-white/40 block mb-1">Active Users</span>
-              <span className="text-xl sm:text-2xl lg:text-3xl font-black text-white italic tracking-tight">142,800+</span>
-              <span className="text-[10px] font-mono text-white/50 block mt-1">86 Countries</span>
+            <div className="flex items-center gap-5 shrink-0 font-mono tabular-nums text-[11px]">
+              {LIVE_RATES.map((rate) => (
+                <div key={rate.symbol} className="flex items-center gap-1.5">
+                  <span className="font-semibold text-white/90">{rate.symbol}</span>
+                  <span className="text-white/65">{rate.price}</span>
+                  <span className="text-emerald-400 flex items-center">
+                    <ArrowUpRight size={11} className="mr-0.5" />
+                    {rate.change}
+                  </span>
+                </div>
+              ))}
             </div>
 
-            <div className="p-3.5 sm:p-4 rounded-2xl bg-card/40 border border-border/60">
-              <span className="text-[9px] sm:text-[10px] font-mono uppercase tracking-widest text-white/40 block mb-1">Trading Bots</span>
-              <span className="text-xl sm:text-2xl lg:text-3xl font-black text-primary italic tracking-tight">24/7 Active</span>
-              <span className="text-[10px] font-mono text-emerald-400 block mt-1">Fast Auto Trades</span>
-            </div>
-
-            <div className="p-3.5 sm:p-4 rounded-2xl bg-card/40 border border-border/60">
-              <span className="text-[9px] sm:text-[10px] font-mono uppercase tracking-widest text-white/40 block mb-1">Asset Safety</span>
-              <span className="text-xl sm:text-2xl lg:text-3xl font-black text-white italic tracking-tight">100% Insured</span>
-              <span className="text-[10px] font-mono text-white/50 block mt-1">Cold Hardware Vaults</span>
+            <div className="hidden lg:flex items-center gap-1.5 text-white/50 text-[11px] font-mono shrink-0">
+              <ShieldCheck size={13} className="text-primary" />
+              <span>256-Bit SSL Custody</span>
             </div>
           </div>
         </div>
-      </section>
 
-      {/* AI Trading Robots Section (Showcasing Bot.jpg and Bot2.jpg) */}
-      <section id="trading-bots" className="py-16 sm:py-20 px-4 sm:px-6 max-w-7xl mx-auto w-full">
-        <div className="relative rounded-3xl sm:rounded-[2.5rem] bg-gradient-to-br from-[#0F131D]/80 via-card/75 to-[#090B10]/80 backdrop-blur-md border border-primary/30 p-5 sm:p-10 lg:p-14 overflow-hidden shadow-2xl">
-          <div className="text-center max-w-3xl mx-auto mb-10 sm:mb-14 space-y-2 sm:space-y-3">
-            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-primary/10 border border-primary/30 text-primary text-xs font-mono font-bold uppercase tracking-wider">
-              <BotIcon size={14} className="text-primary" />
-              <span>Smart Automated Trading</span>
-            </div>
-            <h2 className="text-2xl sm:text-4xl lg:text-5xl font-black italic uppercase tracking-tight text-white">
-              Automated Trading Robots
-            </h2>
-            <p className="text-xs sm:text-sm text-white/70 font-medium leading-relaxed px-2">
-              Goldbrick uses smart automated trading bots that trade 24/7. Our bots buy low and sell high across major global crypto markets to generate steady, guaranteed profits for your account.
-            </p>
-          </div>
+        {/* Sticky Navigation Header */}
+        <header className="sticky top-0 z-50 backdrop-blur-xl bg-[#05080D]/85 border-b border-white/[0.08]">
+          <nav className="flex items-center justify-between px-4 sm:px-6 h-16 max-w-7xl mx-auto w-full">
+            <Link to="/" className="flex items-center shrink-0">
+              <Logo className="h-8 sm:h-9" />
+            </Link>
 
-          {/* Two Hero Trading Robot Showcase Cards */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 sm:gap-8 items-stretch">
-            {/* Robot 1: BTC Arbitrage Core */}
-            <div className="rounded-2xl sm:rounded-3xl bg-black/60 border border-border/80 overflow-hidden group hover:border-primary/50 transition-all flex flex-col justify-between">
-              <div className="relative h-60 sm:h-80 md:h-96 overflow-hidden bg-black/90">
-                <img 
-                  src="/Bot.jpg" 
-                  alt="Goldbrick Bitcoin Trading Robot" 
-                  className="w-full h-full object-cover object-top group-hover:scale-105 transition-transform duration-700" 
-                />
-                <div className="absolute inset-0 bg-gradient-to-t from-black via-black/20 to-transparent" />
-                <div className="absolute top-3 sm:top-4 left-3 sm:left-4 inline-flex items-center gap-2 px-2.5 sm:px-3 py-1 rounded-full bg-black/80 border border-primary/40 backdrop-blur-md">
-                  <span className="size-2 rounded-full bg-emerald-400 animate-pulse" />
-                  <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-white">
-                    Bitcoin Robot • Active
-                  </span>
-                </div>
-                <div className="absolute bottom-3 sm:bottom-4 left-3 sm:left-4 right-3 sm:right-4">
-                  <span className="text-[10px] font-mono uppercase tracking-widest text-primary font-bold">Trading Bot #01</span>
-                  <h3 className="text-lg sm:text-2xl font-black italic uppercase text-white tracking-tight">
-                    Bitcoin Fast Trader
-                  </h3>
-                </div>
-              </div>
-
-              <div className="p-4 sm:p-6 space-y-4">
-                <p className="text-xs text-white/70 leading-relaxed font-medium">
-                  Monitors Bitcoin prices 24/7 on top exchanges like Binance and Coinbase. It instantly takes small price differences to secure safe profits with zero guesswork.
-                </p>
-
-                <div className="grid grid-cols-3 gap-2 pt-2 border-t border-white/5 font-mono text-[10px]">
-                  <div className="p-2 sm:p-2.5 rounded-xl bg-white/5 border border-white/5">
-                    <span className="text-white/40 block text-[9px]">Daily Trades</span>
-                    <span className="text-white font-bold text-[11px] sm:text-xs mt-0.5 block">140,000+</span>
-                  </div>
-                  <div className="p-2 sm:p-2.5 rounded-xl bg-white/5 border border-white/5">
-                    <span className="text-white/40 block text-[9px]">Speed</span>
-                    <span className="text-emerald-400 font-bold text-[11px] sm:text-xs mt-0.5 block">Instant</span>
-                  </div>
-                  <div className="p-2 sm:p-2.5 rounded-xl bg-white/5 border border-white/5">
-                    <span className="text-white/40 block text-[9px]">Safety</span>
-                    <span className="text-primary font-bold text-[11px] sm:text-xs mt-0.5 block">100% Insured</span>
-                  </div>
-                </div>
-              </div>
+            <div className="hidden md:flex items-center gap-7 text-xs font-medium text-white/70">
+              <a href="#vaults" className="hover:text-white transition-colors">Plans</a>
+              <a href="#calculator" className="hover:text-white transition-colors">Calculator</a>
+              <a href="#trading-bots" className="hover:text-white transition-colors">Trading Bots</a>
+              <a href="#security" className="hover:text-white transition-colors">Security</a>
+              <a href="#activity" className="hover:text-white transition-colors">Activity</a>
+              <a href="#faq" className="hover:text-white transition-colors">FAQ</a>
             </div>
 
-            {/* Robot 2: Ethereum Smart Trader */}
-            <div className="rounded-2xl sm:rounded-3xl bg-black/60 border border-border/80 overflow-hidden group hover:border-primary/50 transition-all flex flex-col justify-between">
-              <div className="relative h-60 sm:h-80 md:h-96 overflow-hidden bg-black/90">
-                <img 
-                  src="/Bot2.jpg" 
-                  alt="Goldbrick Ethereum Trading Robot" 
-                  className="w-full h-full object-cover object-top group-hover:scale-105 transition-transform duration-700" 
-                />
-                <div className="absolute inset-0 bg-gradient-to-t from-black via-black/20 to-transparent" />
-                <div className="absolute top-3 sm:top-4 left-3 sm:left-4 inline-flex items-center gap-2 px-2.5 sm:px-3 py-1 rounded-full bg-black/80 border border-primary/40 backdrop-blur-md">
-                  <span className="size-2 rounded-full bg-emerald-400 animate-pulse" />
-                  <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-white">
-                    Ethereum Robot • Active
-                  </span>
-                </div>
-                <div className="absolute bottom-3 sm:bottom-4 left-3 sm:left-4 right-3 sm:right-4">
-                  <span className="text-[10px] font-mono uppercase tracking-widest text-primary font-bold">Trading Bot #02</span>
-                  <h3 className="text-lg sm:text-2xl font-black italic uppercase text-white tracking-tight">
-                    Ethereum Smart Trader
-                  </h3>
-                </div>
-              </div>
-
-              <div className="p-4 sm:p-6 space-y-4">
-                <p className="text-xs text-white/70 leading-relaxed font-medium">
-                  Automatically trades Ethereum across top crypto networks. It captures market opportunities non-stop to ensure consistent daily returns directly to your balance.
-                </p>
-
-                <div className="grid grid-cols-3 gap-2 pt-2 border-t border-white/5 font-mono text-[10px]">
-                  <div className="p-2 sm:p-2.5 rounded-xl bg-white/5 border border-white/5">
-                    <span className="text-white/40 block text-[9px]">Success Rate</span>
-                    <span className="text-emerald-400 font-bold text-[11px] sm:text-xs mt-0.5 block">99.9%</span>
-                  </div>
-                  <div className="p-2 sm:p-2.5 rounded-xl bg-white/5 border border-white/5">
-                    <span className="text-white/40 block text-[9px]">Capital Cover</span>
-                    <span className="text-white font-bold text-[11px] sm:text-xs mt-0.5 block">100% Insured</span>
-                  </div>
-                  <div className="p-2 sm:p-2.5 rounded-xl bg-white/5 border border-white/5">
-                    <span className="text-white/40 block text-[9px]">Active Time</span>
-                    <span className="text-primary font-bold text-[11px] sm:text-xs mt-0.5 block">24/7 Live</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Interactive Yield Calculator Section */}
-      <section id="calculator" className="py-16 sm:py-20 px-4 sm:px-6 max-w-7xl mx-auto w-full">
-        <div className="relative rounded-3xl sm:rounded-[2.5rem] bg-gradient-to-b from-card/80 via-card/70 to-background/70 backdrop-blur-md border border-border/80 p-5 sm:p-8 md:p-12 overflow-hidden shadow-2xl w-full">
-          <div className="absolute top-0 right-0 w-80 h-80 bg-primary/10 blur-[130px] -z-10 rounded-full" />
-
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-10 items-center">
-            {/* Left Controls */}
-            <div className="lg:col-span-7 space-y-5 sm:space-y-6">
-              <div>
-                <span className="text-[10px] font-mono font-bold uppercase tracking-widest text-primary">
-                  Profit Calculator
-                </span>
-                <h2 className="text-2xl sm:text-4xl font-black italic uppercase tracking-tight text-white mt-1">
-                  Calculate Your Earnings
-                </h2>
-                <p className="text-xs sm:text-sm text-white/60 mt-2 font-medium">
-                  Choose a plan and pick how much you want to deposit to see your exact guaranteed profit.
-                </p>
-              </div>
-
-              {/* Dynamic Plan Selection Buttons */}
-              <div className="space-y-2">
-                <label className="text-[10px] font-mono font-bold uppercase tracking-wider text-white/60">
-                  Choose an Investment Plan
-                </label>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                  {adminPlans.map((plan, idx) => {
-                    const isSelected = selectedPlanIndex === idx;
-                    const pVal = plan.profitType === 'fixed' 
-                      ? `$${plan.profitValue?.toLocaleString()}` 
-                      : `${plan.profitValue || plan.dailyROI || 0}%`;
-                    return (
-                      <button
-                        key={plan.id || idx}
-                        onClick={() => {
-                          setSelectedPlanIndex(idx);
-                          if (calcAmount < (plan.minDeposit || 100)) {
-                            setCalcAmount(plan.minDeposit || 100);
-                          } else if (calcAmount > (plan.maxDeposit || 100000)) {
-                            setCalcAmount(plan.maxDeposit || 100000);
-                          }
-                        }}
-                        className={`p-3 rounded-xl border text-xs font-bold transition-all text-left uppercase ${
-                          isSelected
-                            ? 'bg-primary text-slate-950 border-primary font-black shadow-lg shadow-primary/20'
-                            : 'bg-white/5 border-border text-white/70 hover:bg-white/10'
-                        }`}
-                      >
-                        <div className="truncate font-black">{plan.name}</div>
-                        <div className={`text-[10px] font-mono mt-0.5 ${isSelected ? 'text-slate-900 font-black' : 'text-primary'}`}>
-                          {pVal} Return
-                        </div>
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Amount Slider */}
-              <div className="space-y-2.5">
-                <div className="flex items-center justify-between">
-                  <span className="text-[10px] font-mono font-bold uppercase tracking-wider text-white/60">
-                    Deposit Amount (USD)
-                  </span>
-                  <span className="text-xl sm:text-2xl font-mono font-black text-primary">
-                    ${calcAmount.toLocaleString()}
-                  </span>
-                </div>
-                <input
-                  type="range"
-                  min={minDeposit}
-                  max={Math.max(minDeposit + 1000, maxDeposit)}
-                  step={minDeposit >= 1000 ? 500 : 100}
-                  value={calcAmount}
-                  onChange={(e) => setCalcAmount(Number(e.target.value))}
-                  className="w-full accent-primary h-2.5 bg-white/10 rounded-lg cursor-pointer"
-                />
-                <div className="flex justify-between text-[10px] font-mono text-white/40">
-                  <span>Min: ${minDeposit.toLocaleString()}</span>
-                  <span className="hidden sm:inline">Duration: {durationText}</span>
-                  <span>Max: ${maxDeposit.toLocaleString()}</span>
-                </div>
-              </div>
-
-              {/* Quick Preset Buttons */}
-              <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 pt-1">
-                <span className="text-[10px] font-mono uppercase text-white/40 mr-1">Quick Picks:</span>
-                {[minDeposit, Math.round(minDeposit * 2), Math.round(minDeposit * 5), Math.min(maxDeposit, 25000), maxDeposit]
-                  .filter((v, i, arr) => arr.indexOf(v) === i && v >= minDeposit && v <= maxDeposit)
-                  .map((preset) => (
-                    <button
-                      key={preset}
-                      onClick={() => setCalcAmount(preset)}
-                      className="px-2.5 py-1 rounded-lg text-[10px] font-mono font-bold bg-white/5 border border-border text-white/70 hover:border-primary/50 hover:text-white"
-                    >
-                      ${preset.toLocaleString()}
-                    </button>
-                  ))}
-              </div>
-            </div>
-
-            {/* Right Projected Metrics Card */}
-            <div className="lg:col-span-5 bg-black/60 rounded-2xl sm:rounded-3xl border border-primary/30 p-5 sm:p-8 space-y-5 sm:space-y-6 shadow-xl backdrop-blur-md">
-              <div className="flex items-center justify-between pb-3 sm:pb-4 border-b border-white/10">
-                <span className="text-[10px] font-mono uppercase tracking-widest text-white/40">Your Estimated Returns</span>
-                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[10px] font-mono font-bold truncate max-w-[150px]">
-                  <CheckCircle2 size={10} className="shrink-0" />
-                  <span className="truncate">{activePlan.name}</span>
-                </span>
-              </div>
-
-              <div className="space-y-4">
-                <div>
-                  <span className="text-[10px] font-mono uppercase tracking-wider text-white/50 block">Guaranteed Profit</span>
-                  <div className="text-2xl sm:text-3xl font-black font-mono text-emerald-400 mt-0.5">
-                    +${Math.round(calculatedProfit).toLocaleString()}
-                  </div>
-                  <span className="text-[10px] font-mono text-white/40">
-                    Duration: {durationText} • Paid directly to balance
-                  </span>
-                </div>
-
-                <div className="pt-3 border-t border-white/5">
-                  <span className="text-[10px] font-mono uppercase tracking-wider text-white/50 block">Total Payout (Deposit + Profit)</span>
-                  <div className="text-xl sm:text-2xl font-black font-mono text-white mt-0.5">
-                    ${Math.round(expectedTotalReturn).toLocaleString()}
-                  </div>
-                  <span className="text-[10px] font-mono text-primary font-bold">
-                    Rate: {isFixedProfit ? `$${profitValue} per unit` : `${profitValue}%`}
-                  </span>
-                </div>
-              </div>
-
-              <Link to="/register" className="block w-full">
-                <Button className="w-full bg-primary text-slate-950 hover:bg-amber-400 font-black text-xs uppercase tracking-wider h-11 sm:h-12 rounded-xl shadow-lg shadow-primary/20">
-                  Start Earning With This Plan <ArrowRight size={14} className="ml-1.5" />
+            <div className="hidden sm:flex items-center gap-2.5">
+              {isInstallable && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handleInstallClick}
+                  className="hidden lg:flex border-primary/40 text-primary hover:bg-primary/10 font-medium h-9 px-3 rounded-xl text-xs gap-1.5 cursor-pointer"
+                >
+                  <Download size={13} />
+                  <span>Install</span>
+                </Button>
+              )}
+              <Link to="/login">
+                <Button
+                  variant="ghost"
+                  className="text-xs font-medium text-white/80 hover:text-white hover:bg-white/[0.06] h-9 px-3.5 rounded-xl cursor-pointer"
+                >
+                  Sign In
+                </Button>
+              </Link>
+              <Link to="/register">
+                <Button className="bg-primary text-slate-950 hover:bg-amber-400 font-semibold text-xs h-9 px-4 rounded-xl shadow-lg shadow-primary/20 cursor-pointer">
+                  Open Account
                 </Button>
               </Link>
             </div>
-          </div>
-        </div>
-      </section>
 
-      {/* Investment Vaults Showcase (Live from Admin Plans) */}
-      <section id="vaults" className="py-16 sm:py-20 px-4 sm:px-6 max-w-7xl mx-auto w-full">
-        <div className="text-center max-w-2xl mx-auto mb-12 sm:mb-16">
-          <span className="text-[10px] font-mono font-bold uppercase tracking-widest text-primary">
-            Investment Plans
-          </span>
-          <h2 className="text-2xl sm:text-4xl lg:text-5xl font-black italic uppercase tracking-tight text-white mt-1">
-            Choose Your Plan
-          </h2>
-          <p className="text-xs sm:text-sm text-white/60 mt-2 sm:mt-3 font-medium px-2">
-            Pick the plan that works best for you. Clear deposit amounts, safe trading, and fast payouts.
-          </p>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 sm:gap-8">
-          {adminPlans.map((plan, idx) => {
-            const isPopular = idx === 1 || adminPlans.length === 1;
-            const pVal = plan.profitType === 'fixed' 
-              ? `$${plan.profitValue?.toLocaleString()}` 
-              : `${plan.profitValue || plan.dailyROI || 0}%`;
-            const dur = plan.durationDays 
-              ? `${plan.durationDays} Days Duration` 
-              : plan.durationHours 
-              ? `${plan.durationHours} Hours Duration` 
-              : '8-Hour Cycle';
-
-            return (
-              <div
-                key={plan.id || idx}
-                className={`relative rounded-3xl sm:rounded-[2rem] bg-gradient-to-b from-[#121622] via-card to-[#090B10] border ${
-                  isPopular ? 'border-primary shadow-2xl shadow-primary/20 lg:scale-105 z-10' : 'border-border'
-                } p-6 sm:p-8 flex flex-col justify-between transition-all hover:border-primary/60`}
+            <div className="flex sm:hidden items-center gap-2">
+              <Link to="/register">
+                <Button size="sm" className="bg-primary text-slate-950 font-semibold text-xs h-8 px-3 rounded-lg">
+                  Register
+                </Button>
+              </Link>
+              <button
+                type="button"
+                onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+                className="p-2 rounded-lg bg-white/[0.05] border border-white/10 text-white hover:text-primary"
+                aria-label="Toggle navigation menu"
               >
-                {isPopular && (
-                  <div className="absolute -top-3 left-1/2 -translate-x-1/2 bg-primary text-slate-950 text-[10px] font-black uppercase tracking-widest px-3 py-1 rounded-full shadow-md whitespace-nowrap">
-                    Most Popular
-                  </div>
-                )}
+                {mobileMenuOpen ? <X size={18} /> : <Menu size={18} />}
+              </button>
+            </div>
+          </nav>
 
-                <div>
-                  <div className="flex items-center justify-between mb-4">
-                    <span className="text-xs font-mono font-black uppercase tracking-wider text-white/70 truncate mr-2">
-                      {plan.name}
-                    </span>
-                    <span className="text-[10px] font-mono text-white/40 shrink-0">
-                      {dur}
-                    </span>
-                  </div>
+          <AnimatePresence>
+            {mobileMenuOpen && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: 'auto' }}
+                exit={{ opacity: 0, height: 0 }}
+                className="sm:hidden border-b border-white/10 bg-[#080C14]/98 px-5 py-4 space-y-4 backdrop-blur-2xl"
+              >
+                <div className="flex flex-col space-y-2.5 text-sm font-medium text-white/80">
+                  <a href="#vaults" onClick={() => setMobileMenuOpen(false)} className="hover:text-primary py-1">Investment Plans</a>
+                  <a href="#calculator" onClick={() => setMobileMenuOpen(false)} className="hover:text-primary py-1">Profit Calculator</a>
+                  <a href="#trading-bots" onClick={() => setMobileMenuOpen(false)} className="hover:text-primary py-1">Trading Bots</a>
+                  <a href="#security" onClick={() => setMobileMenuOpen(false)} className="hover:text-primary py-1">Security &amp; Protection</a>
+                  <a href="#activity" onClick={() => setMobileMenuOpen(false)} className="hover:text-primary py-1">Live Activity</a>
+                  <a href="#faq" onClick={() => setMobileMenuOpen(false)} className="hover:text-primary py-1">FAQ</a>
+                </div>
 
-                  <div className="mb-5 sm:mb-6">
-                    <div className="text-3xl sm:text-5xl font-black italic text-white tracking-tight font-mono">
-                      {pVal}
+                <div className="pt-3 border-t border-white/10 flex flex-col gap-2">
+                  <Link to="/login" onClick={() => setMobileMenuOpen(false)}>
+                    <Button variant="outline" className="w-full border-white/10 text-white text-xs font-semibold h-10 rounded-xl">
+                      Client Sign In
+                    </Button>
+                  </Link>
+                  <Link to="/register" onClick={() => setMobileMenuOpen(false)}>
+                    <Button className="w-full bg-primary text-slate-950 font-semibold text-xs h-10 rounded-xl">
+                      Open Free Account
+                    </Button>
+                  </Link>
+                  {isInstallable && (
+                    <Button
+                      variant="ghost"
+                      onClick={() => { setMobileMenuOpen(false); handleInstallClick(); }}
+                      className="w-full text-primary text-xs font-medium gap-2 h-9"
+                    >
+                      <Download size={14} /> Install GoldBrick App
+                    </Button>
+                  )}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </header>
+
+        {/* Hero Section */}
+        <section className="relative pt-14 sm:pt-20 md:pt-24 pb-16 sm:pb-20 px-4 sm:px-6 max-w-6xl mx-auto w-full">
+          <div className="flex flex-col items-center text-center max-w-3xl mx-auto">
+            <p className="text-xs sm:text-sm font-medium text-amber-300/90 mb-4 tracking-wide">
+              Automated Multi-Asset Staking · Cold Hardware Custody
+            </p>
+
+            <h1 className="text-3xl sm:text-5xl md:text-6xl font-bold tracking-tight leading-[1.1] mb-5 [text-wrap:balance]">
+              <span className="text-white">Financial Freedom,</span>{' '}
+              <span className="bg-gradient-to-r from-[#FDE68A] via-[#F59E0B] to-[#D97706] bg-clip-text text-transparent">
+                Engineered Clearly.
+              </span>
+            </h1>
+
+            <p className="text-sm sm:text-base md:text-lg text-white/70 max-w-2xl leading-relaxed mb-8">
+              Grow your digital assets with 24/7 automated market bots, transparent cycle yields, cold-vault custody, and instant crypto settlements.
+            </p>
+
+            <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto items-stretch sm:items-center justify-center max-w-sm sm:max-w-none">
+              <Link to="/register" className="w-full sm:w-auto">
+                <Button size="lg" className="w-full sm:w-auto bg-primary text-slate-950 hover:bg-amber-400 font-semibold text-sm px-7 h-12 rounded-xl shadow-xl shadow-primary/25 gap-2 cursor-pointer">
+                  <span>Start Investing Now</span>
+                  <ArrowRight size={16} />
+                </Button>
+              </Link>
+
+              <a href="#calculator" className="w-full sm:w-auto">
+                <Button size="lg" variant="outline" className="w-full sm:w-auto border-white/15 bg-white/[0.04] hover:bg-white/[0.08] text-white font-medium text-sm px-6 h-12 rounded-xl backdrop-blur-md gap-2 cursor-pointer">
+                  <Sliders size={15} className="text-primary" />
+                  <span>Calculate Profit</span>
+                </Button>
+              </a>
+            </div>
+          </div>
+
+          {/* Clean Structured Metric Ledger */}
+          <div className="mt-14 sm:mt-16 rounded-2xl bg-[#0A0F18]/85 backdrop-blur-md border border-white/10 grid grid-cols-2 lg:grid-cols-4 divide-y lg:divide-y-0 lg:divide-x divide-white/[0.08] overflow-hidden">
+            <div className="p-5 sm:p-6">
+              <span className="text-xs text-white/45 block mb-1">Assets Under Custody</span>
+              <span className="text-2xl sm:text-3xl font-bold font-mono tabular-nums text-white">$3.84B+</span>
+              <span className="text-xs font-mono text-emerald-400 flex items-center gap-1 mt-1">
+                <TrendingUp size={12} /> +18.4% YoY
+              </span>
+            </div>
+
+            <div className="p-5 sm:p-6">
+              <span className="text-xs text-white/45 block mb-1">Verified Investors</span>
+              <span className="text-2xl sm:text-3xl font-bold font-mono tabular-nums text-white">142,800+</span>
+              <span className="text-xs text-white/50 block mt-1">Across 86 countries</span>
+            </div>
+
+            <div className="p-5 sm:p-6">
+              <span className="text-xs text-white/45 block mb-1">Execution Engine</span>
+              <span className="text-2xl sm:text-3xl font-bold font-mono tabular-nums text-primary">24/7 Live</span>
+              <span className="text-xs text-emerald-400 block mt-1">Automated arbitrage</span>
+            </div>
+
+            <div className="p-5 sm:p-6">
+              <span className="text-xs text-white/45 block mb-1">Reserve Protection</span>
+              <span className="text-2xl sm:text-3xl font-bold font-mono tabular-nums text-white">100% Insured</span>
+              <span className="text-xs text-white/50 block mt-1">Cold hardware vaults</span>
+            </div>
+          </div>
+        </section>
+
+        {/* Automated Trading Robots Section */}
+        <section id="trading-bots" className="py-16 sm:py-20 px-4 sm:px-6 max-w-7xl mx-auto w-full">
+          <div className="rounded-3xl bg-[#0A0F18]/85 backdrop-blur-md border border-white/10 p-6 sm:p-10 lg:p-12 shadow-2xl">
+            <div className="text-center max-w-2xl mx-auto mb-10 sm:mb-12 space-y-2.5">
+              <div className="inline-flex items-center gap-1.5 text-xs font-medium text-primary">
+                <BotIcon size={15} />
+                <span>Automated Execution</span>
+              </div>
+              <h2 className="text-2xl sm:text-4xl font-bold tracking-tight text-white">
+                Automated Trading Robots
+              </h2>
+              <p className="text-sm text-white/65 leading-relaxed">
+                Continuous algorithmic execution across major crypto liquidity venues to generate consistent returns with strict risk limits.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 sm:gap-8">
+              {/* Robot 01 */}
+              <div className="rounded-2xl bg-[#05080D]/80 border border-white/10 overflow-hidden group hover:border-primary/40 transition-colors flex flex-col justify-between">
+                <div className="relative h-64 sm:h-80 overflow-hidden bg-black">
+                  <img
+                    src="/Bot.jpg"
+                    alt="Goldbrick Bitcoin Trading Robot"
+                    className="w-full h-full object-cover object-top group-hover:scale-105 transition-transform duration-700"
+                  />
+                  <div className="absolute inset-0 bg-gradient-to-t from-[#05080D] via-black/25 to-transparent" />
+                  <div className="absolute bottom-4 left-4 right-4 flex items-end justify-between gap-2">
+                    <div>
+                      <span className="text-[11px] font-mono text-primary font-medium block">01 · Bitcoin Core</span>
+                      <h3 className="text-xl font-bold text-white">Bitcoin Fast Trader</h3>
                     </div>
-                    <span className="text-xs font-mono font-bold text-primary block mt-1">
-                      {plan.profitType === 'fixed' ? 'Fixed Profit' : 'Profit Return'}
-                    </span>
-                  </div>
-
-                  <div className="p-3.5 sm:p-4 rounded-xl bg-black/40 border border-white/5 space-y-1.5 mb-5 sm:mb-6">
-                    <div className="flex justify-between text-xs font-mono">
-                      <span className="text-white/50">Minimum Deposit:</span>
-                      <span className="text-white font-bold">${plan.minDeposit?.toLocaleString()}</span>
-                    </div>
-                    <div className="flex justify-between text-xs font-mono">
-                      <span className="text-white/50">Maximum Deposit:</span>
-                      <span className="text-white font-bold">${plan.maxDeposit?.toLocaleString()}</span>
-                    </div>
-                  </div>
-
-                  <div className="space-y-2.5 sm:space-y-3 mb-6 sm:mb-8">
-                    {[
-                      'Automated Trading Robot Payouts',
-                      'Capital 100% Protected & Guaranteed',
-                      'Regular Profit Added to Your Account',
-                      'Fast Crypto & Wallet Withdrawals'
-                    ].map((feat, fIdx) => (
-                      <div key={fIdx} className="flex items-start gap-2 text-xs text-white/80 font-medium">
-                        <CheckCircle2 size={14} className="text-primary shrink-0 mt-0.5" />
-                        <span>{feat}</span>
-                      </div>
-                    ))}
+                    <span className="text-xs font-medium text-emerald-400">Active</span>
                   </div>
                 </div>
 
-                <Link to="/register" className="w-full">
-                  <Button
-                    className={`w-full font-black text-xs uppercase tracking-wider h-11 sm:h-12 rounded-xl transition-all ${
-                      isPopular
-                        ? 'bg-primary text-slate-950 hover:bg-amber-400 shadow-lg shadow-primary/25'
-                        : 'bg-white/10 text-white hover:bg-white/20 border border-white/10'
-                    }`}
-                  >
-                    Start With {plan.name}
+                <div className="p-5 sm:p-6 space-y-4">
+                  <p className="text-sm text-white/65 leading-relaxed">
+                    Scans Bitcoin order books 24/7 across Binance and Coinbase, capturing micro-arbitrage spreads with automated execution.
+                  </p>
+
+                  <div className="grid grid-cols-3 gap-3 pt-3 border-t border-white/[0.07] font-mono tabular-nums text-xs">
+                    <div>
+                      <span className="text-white/45 block text-[11px] font-sans">Daily Trades</span>
+                      <span className="text-white font-semibold mt-0.5 block">140,000+</span>
+                    </div>
+                    <div>
+                      <span className="text-white/45 block text-[11px] font-sans">Execution</span>
+                      <span className="text-emerald-400 font-semibold mt-0.5 block">Instant</span>
+                    </div>
+                    <div>
+                      <span className="text-white/45 block text-[11px] font-sans">Coverage</span>
+                      <span className="text-primary font-semibold mt-0.5 block">100% Insured</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Robot 02 */}
+              <div className="rounded-2xl bg-[#05080D]/80 border border-white/10 overflow-hidden group hover:border-primary/40 transition-colors flex flex-col justify-between">
+                <div className="relative h-64 sm:h-80 overflow-hidden bg-black">
+                  <img
+                    src="/Bot2.jpg"
+                    alt="Goldbrick Ethereum Trading Robot"
+                    className="w-full h-full object-cover object-top group-hover:scale-105 transition-transform duration-700"
+                  />
+                  <div className="absolute inset-0 bg-gradient-to-t from-[#05080D] via-black/25 to-transparent" />
+                  <div className="absolute bottom-4 left-4 right-4 flex items-end justify-between gap-2">
+                    <div>
+                      <span className="text-[11px] font-mono text-primary font-medium block">02 · Ethereum Desk</span>
+                      <h3 className="text-xl font-bold text-white">Ethereum Smart Trader</h3>
+                    </div>
+                    <span className="text-xs font-medium text-emerald-400">Active</span>
+                  </div>
+                </div>
+
+                <div className="p-5 sm:p-6 space-y-4">
+                  <p className="text-sm text-white/65 leading-relaxed">
+                    Balances Ethereum liquidity pools non-stop to capture institutional spreads and credit reliable cycle yields directly to your wallet.
+                  </p>
+
+                  <div className="grid grid-cols-3 gap-3 pt-3 border-t border-white/[0.07] font-mono tabular-nums text-xs">
+                    <div>
+                      <span className="text-white/45 block text-[11px] font-sans">Success Rate</span>
+                      <span className="text-emerald-400 font-semibold mt-0.5 block">99.9%</span>
+                    </div>
+                    <div>
+                      <span className="text-white/45 block text-[11px] font-sans">Capital Cover</span>
+                      <span className="text-white font-semibold mt-0.5 block">100% Insured</span>
+                    </div>
+                    <div>
+                      <span className="text-white/45 block text-[11px] font-sans">Availability</span>
+                      <span className="text-primary font-semibold mt-0.5 block">24/7 Live</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* Interactive Yield Calculator */}
+        <section id="calculator" className="py-16 sm:py-20 px-4 sm:px-6 max-w-7xl mx-auto w-full">
+          <div className="rounded-3xl bg-[#0A0F18]/90 backdrop-blur-md border border-white/10 p-6 sm:p-10 shadow-2xl">
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
+              <div className="lg:col-span-7 space-y-6">
+                <div className="space-y-1.5">
+                  <span className="text-xs font-medium text-primary">Profit Calculator</span>
+                  <h2 className="text-2xl sm:text-4xl font-bold tracking-tight text-white">
+                    Calculate Your Returns
+                  </h2>
+                  <p className="text-sm text-white/60">
+                    Select an active plan and adjust your investment amount to preview your projected payout.
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-xs font-medium text-white/65 block">Choose an Investment Plan</label>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                    {adminPlans.map((plan, idx) => {
+                      const isSelected = selectedPlanIndex === idx;
+                      const pVal =
+                        plan.profitType === 'fixed'
+                          ? `$${plan.profitValue?.toLocaleString()}`
+                          : `${plan.profitValue || plan.dailyROI || 0}%`;
+                      return (
+                        <button
+                          key={plan.id || idx}
+                          type="button"
+                          onClick={() => {
+                            setSelectedPlanIndex(idx);
+                            if (calcAmount < (plan.minDeposit || 100)) {
+                              setCalcAmount(plan.minDeposit || 100);
+                            } else if (calcAmount > (plan.maxDeposit || 100000)) {
+                              setCalcAmount(plan.maxDeposit || 100000);
+                            }
+                          }}
+                          className={`p-3.5 rounded-xl border text-left transition-all cursor-pointer ${
+                            isSelected
+                              ? 'bg-primary text-slate-950 border-primary font-semibold shadow-md'
+                              : 'bg-white/[0.03] border-white/10 text-white/80 hover:bg-white/[0.07]'
+                          }`}
+                        >
+                          <div className="truncate text-sm font-semibold">{plan.name}</div>
+                          <div className={`text-xs font-mono mt-0.5 ${isSelected ? 'text-slate-900 font-bold' : 'text-primary'}`}>
+                            {pVal} Return
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-medium text-white/65">Investment Amount (USD)</span>
+                    <span className="text-2xl font-mono tabular-nums font-bold text-primary">
+                      ${calcAmount.toLocaleString()}
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min={minDeposit}
+                    max={Math.max(minDeposit + 1000, maxDeposit)}
+                    step={minDeposit >= 1000 ? 500 : 100}
+                    value={calcAmount}
+                    onChange={(e) => setCalcAmount(Number(e.target.value))}
+                    className="w-full accent-primary h-2 bg-white/10 rounded-lg cursor-pointer"
+                  />
+                  <div className="flex justify-between text-xs font-mono tabular-nums text-white/45">
+                    <span>Min: ${minDeposit.toLocaleString()}</span>
+                    <span className="hidden sm:inline">Duration: {durationText}</span>
+                    <span>Max: ${maxDeposit.toLocaleString()}</span>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-xs text-white/45 mr-1">Quick Amounts:</span>
+                  {[minDeposit, Math.round(minDeposit * 2), Math.round(minDeposit * 5), Math.min(maxDeposit, 25000), maxDeposit]
+                    .filter((v, i, arr) => arr.indexOf(v) === i && v >= minDeposit && v <= maxDeposit)
+                    .map((preset) => (
+                      <button
+                        key={preset}
+                        type="button"
+                        onClick={() => setCalcAmount(preset)}
+                        className="px-3 py-1 rounded-lg text-xs font-mono tabular-nums bg-white/[0.04] border border-white/10 text-white/75 hover:border-primary/50 hover:text-white cursor-pointer"
+                      >
+                        ${preset.toLocaleString()}
+                      </button>
+                    ))}
+                </div>
+              </div>
+
+              <div className="lg:col-span-5 bg-[#05080D]/85 rounded-2xl border border-primary/30 p-6 sm:p-7 space-y-5">
+                <div className="flex items-center justify-between pb-3.5 border-b border-white/[0.08]">
+                  <span className="text-xs font-medium text-white/50">Estimated Returns</span>
+                  <span className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-400">
+                    <CheckCircle2 size={13} />
+                    <span>{activePlan.name}</span>
+                  </span>
+                </div>
+
+                <div className="space-y-4 font-mono tabular-nums">
+                  <div>
+                    <span className="text-xs font-sans text-white/50 block">Projected Profit</span>
+                    <div className="text-3xl font-bold text-emerald-400 mt-1">
+                      +${Math.round(calculatedProfit).toLocaleString()}
+                    </div>
+                    <span className="text-xs font-sans text-white/45 mt-1 block">
+                      Duration: {durationText} · Settled to balance
+                    </span>
+                  </div>
+
+                  <div className="pt-4 border-t border-white/[0.07]">
+                    <span className="text-xs font-sans text-white/50 block">Total Return (Principal + Profit)</span>
+                    <div className="text-2xl font-bold text-white mt-1">
+                      ${Math.round(expectedTotalReturn).toLocaleString()}
+                    </div>
+                    <span className="text-xs text-primary font-medium mt-1 block">
+                      Rate: {isFixedProfit ? `$${profitValue} per unit` : `${profitValue}%`}
+                    </span>
+                  </div>
+                </div>
+
+                <Link to="/register" className="block w-full pt-1">
+                  <Button className="w-full bg-primary text-slate-950 hover:bg-amber-400 font-semibold text-sm h-11 rounded-xl shadow-lg shadow-primary/20 cursor-pointer">
+                    Start Earning With This Plan <ArrowRight size={15} className="ml-1.5" />
                   </Button>
                 </Link>
               </div>
-            );
-          })}
-        </div>
-      </section>
-
-      {/* Live Global Activity & Transparency Ribbon */}
-      <section id="activity" className="py-14 sm:py-16 px-4 sm:px-6 max-w-7xl mx-auto border-t border-border/40 w-full">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 sm:gap-4 mb-6 sm:mb-8">
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-              </span>
-              <h3 className="text-lg sm:text-xl font-black italic uppercase tracking-tight text-white">
-                Live Liquidity & Payouts
-              </h3>
             </div>
-            <p className="text-xs text-white/50 font-medium mt-1">
-              Real-time updates showing recent deposits, investments, and member withdrawals.
+          </div>
+        </section>
+
+        {/* Investment Vaults Showcase */}
+        <section id="vaults" className="py-16 sm:py-20 px-4 sm:px-6 max-w-7xl mx-auto w-full">
+          <div className="text-center max-w-2xl mx-auto mb-12 space-y-2">
+            <span className="text-xs font-medium text-primary">Investment Plans</span>
+            <h2 className="text-2xl sm:text-4xl font-bold tracking-tight text-white">
+              Choose Your Investment Plan
+            </h2>
+            <p className="text-sm text-white/60">
+              Transparent entry limits, automated execution cycles, and fast withdrawals.
             </p>
           </div>
 
-          <div className="text-[11px] font-mono text-white/40">
-            Network Status: <span className="text-emerald-400 font-bold">100% Uptime</span>
-          </div>
-        </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {adminPlans.map((plan, idx) => {
+              const isPopular = idx === 1 || adminPlans.length === 1;
+              const pVal =
+                plan.profitType === 'fixed'
+                  ? `$${plan.profitValue?.toLocaleString()}`
+                  : `${plan.profitValue || plan.dailyROI || 0}%`;
+              const dur = plan.durationDays
+                ? `${plan.durationDays} Days`
+                : plan.durationHours
+                ? `${plan.durationHours} Hours`
+                : '8-Hour Cycle';
 
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4">
-          {RECENT_ACTIVITIES.map((act, i) => (
-            <div key={i} className="p-3 sm:p-4 rounded-2xl bg-card border border-border/60 space-y-1.5 sm:space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-base" role="img" aria-label="flag">{act.flag}</span>
-                <span className="text-[9px] sm:text-[10px] font-mono text-white/40">{act.time}</span>
-              </div>
-              <div>
-                <p className="text-xs font-bold text-white truncate">{act.user}</p>
-                <p className="text-xs font-mono font-black text-primary">{act.amount}</p>
-              </div>
-              <div className="text-[9px] font-mono uppercase tracking-wider text-emerald-400 pt-1 border-t border-white/5 truncate">
-                {act.action}
-              </div>
-            </div>
-          ))}
-        </div>
-      </section>
+              return (
+                <div
+                  key={plan.id || idx}
+                  className={`relative rounded-2xl bg-[#0A0F18]/90 border ${
+                    isPopular ? 'border-primary/70 shadow-2xl shadow-primary/10' : 'border-white/10'
+                  } p-6 sm:p-7 flex flex-col justify-between transition-colors hover:border-primary/50`}
+                >
+                  <div>
+                    <div className="flex items-center justify-between gap-2 mb-4">
+                      <span className="text-sm font-semibold text-white truncate">{plan.name}</span>
+                      <span className="text-xs font-mono text-white/50 shrink-0">{dur}</span>
+                    </div>
 
-      {/* Security & Protection */}
-      <section id="security" className="py-16 sm:py-20 px-4 sm:px-6 max-w-7xl mx-auto w-full">
-        <div className="text-center max-w-2xl mx-auto mb-12 sm:mb-16">
-          <span className="text-[10px] font-mono font-bold uppercase tracking-widest text-primary">
-            Safety & Protection
-          </span>
-          <h2 className="text-2xl sm:text-4xl lg:text-5xl font-black italic uppercase tracking-tight text-white mt-1">
-            Built to Protect Your Funds
-          </h2>
-          <p className="text-xs sm:text-sm text-white/60 mt-2 sm:mt-3 font-medium px-2">
-            Safe offline crypto storage, automated risk limits, and 100% capital guarantees.
-          </p>
-        </div>
+                    <div className="mb-5">
+                      <div className="text-4xl font-bold font-mono tabular-nums text-white tracking-tight">
+                        {pVal}
+                      </div>
+                      <span className="text-xs font-medium text-primary block mt-1">
+                        {plan.profitType === 'fixed' ? 'Fixed Profit' : 'Cycle Return'}
+                        {isPopular ? ' · Most Popular' : ''}
+                      </span>
+                    </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 sm:gap-8">
-          <div className="p-6 sm:p-8 rounded-3xl bg-card border border-border space-y-3 sm:space-y-4 hover:border-primary/40 transition-colors">
-            <div className="size-11 sm:size-12 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary">
-              <Lock size={20} />
-            </div>
-            <h3 className="text-base sm:text-lg font-black uppercase italic text-white">Cold Vault Storage</h3>
-            <p className="text-xs text-white/60 leading-relaxed font-medium">
-              Over 98% of all deposits are kept offline in secure hardware vaults protected against any online risk.
-            </p>
-          </div>
+                    <div className="p-4 rounded-xl bg-white/[0.03] border border-white/[0.07] space-y-2 mb-5 text-xs font-mono tabular-nums">
+                      <div className="flex justify-between">
+                        <span className="text-white/50 font-sans">Minimum Deposit</span>
+                        <span className="text-white font-semibold">${plan.minDeposit?.toLocaleString()}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-white/50 font-sans">Maximum Deposit</span>
+                        <span className="text-white font-semibold">${plan.maxDeposit?.toLocaleString()}</span>
+                      </div>
+                    </div>
 
-          <div className="p-6 sm:p-8 rounded-3xl bg-card border border-border space-y-3 sm:space-y-4 hover:border-primary/40 transition-colors">
-            <div className="size-11 sm:size-12 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary">
-              <Cpu size={20} />
-            </div>
-            <h3 className="text-base sm:text-lg font-black uppercase italic text-white">Smart Risk System</h3>
-            <p className="text-xs text-white/60 leading-relaxed font-medium">
-              Automated stop-loss systems protect your money at all times, preventing loss during volatile market shifts.
-            </p>
-          </div>
-
-          <div className="p-6 sm:p-8 rounded-3xl bg-card border border-border space-y-3 sm:space-y-4 hover:border-primary/40 transition-colors">
-            <div className="size-11 sm:size-12 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary">
-              <Building2 size={20} />
-            </div>
-            <h3 className="text-base sm:text-lg font-black uppercase italic text-white">Capital Guarantee</h3>
-            <p className="text-xs text-white/60 leading-relaxed font-medium">
-              Goldbrick keeps a full 1:1 reserve balance for all user funds so you can withdraw whenever you want.
-            </p>
-          </div>
-        </div>
-      </section>
-
-      {/* Comparison Matrix (Fully responsive card layout on mobile, table on desktop) */}
-      <section className="py-16 sm:py-20 px-4 sm:px-6 max-w-5xl mx-auto w-full">
-        <div className="text-center mb-8 sm:mb-12">
-          <h2 className="text-2xl sm:text-3xl font-black italic uppercase tracking-tight text-white px-2">
-            Why Investors Choose Goldbrick
-          </h2>
-        </div>
-
-        {/* Desktop Table */}
-        <div className="hidden md:block rounded-3xl bg-card border border-border overflow-hidden">
-          <table className="w-full text-left text-xs">
-            <thead className="bg-white/5 border-b border-border">
-              <tr>
-                <th className="p-5 font-mono text-[10px] uppercase text-white/50">Feature / Standard</th>
-                <th className="p-5 font-mono text-[10px] uppercase text-primary font-black">Goldbrick Exchange</th>
-                <th className="p-5 font-mono text-[10px] uppercase text-white/40">Traditional Commercial Bank</th>
-                <th className="p-5 font-mono text-[10px] uppercase text-white/40">Standard Retail Broker</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border/60 font-medium">
-              <tr>
-                <td className="p-5 text-white">Trading & Profit Engine</td>
-                <td className="p-5 text-primary font-bold">24/7 Automated Robot Fleet</td>
-                <td className="p-5 text-white/40">Quarterly / Annual Loan Spreads</td>
-                <td className="p-5 text-white/40">Market Volatility Direct Risk</td>
-              </tr>
-              <tr>
-                <td className="p-5 text-white">Average Annual Return</td>
-                <td className="p-5 text-emerald-400 font-bold">120% – 380% Projected</td>
-                <td className="p-5 text-white/40">0.5% – 2.5%</td>
-                <td className="p-5 text-white/40">6% – 10%</td>
-              </tr>
-              <tr>
-                <td className="p-5 text-white">Withdrawal Speed</td>
-                <td className="p-5 text-primary font-bold">Instant to 15 Minutes</td>
-                <td className="p-5 text-white/40">3 – 5 Business Days</td>
-                <td className="p-5 text-white/40">1 – 3 Business Days</td>
-              </tr>
-              <tr>
-                <td className="p-5 text-white">Deposit Methods</td>
-                <td className="p-5 text-primary font-bold">BTC, ETH, USDT, Bank Details</td>
-                <td className="p-5 text-white/40">Fiat Currency Only</td>
-                <td className="p-5 text-white/40">Limited Wire / Card</td>
-              </tr>
-              <tr>
-                <td className="p-5 text-white">Customer Support</td>
-                <td className="p-5 text-primary font-bold">24/7 Dedicated Support</td>
-                <td className="p-5 text-white/40">High-fee private banking only</td>
-                <td className="p-5 text-white/40">Chat bot / ticketing queue</td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-
-        {/* Mobile Responsive Cards */}
-        <div className="grid grid-cols-1 gap-3.5 md:hidden">
-          {[
-            { title: 'Trading & Profit Engine', goldbrick: '24/7 Automated Robot Fleet', bank: 'Quarterly / Annual Spreads', broker: 'Direct Market Risk' },
-            { title: 'Average Annual Return', goldbrick: '120% – 380% Projected', bank: '0.5% – 2.5%', broker: '6% – 10%' },
-            { title: 'Withdrawal Speed', goldbrick: 'Instant to 15 Minutes', bank: '3 – 5 Business Days', broker: '1 – 3 Business Days' },
-            { title: 'Deposit Methods', goldbrick: 'BTC, ETH, USDT, Bank Details', bank: 'Fiat Only', broker: 'Cards / Limited Wire' },
-            { title: 'Customer Support', goldbrick: '24/7 Dedicated Support', bank: 'High-fee private desk', broker: 'Chatbot queue' },
-          ].map((item, idx) => (
-            <div key={idx} className="p-4 rounded-2xl bg-card border border-border space-y-2 text-xs">
-              <span className="font-mono text-[10px] uppercase text-white/50 block">{item.title}</span>
-              <div className="flex justify-between items-center py-1 border-b border-white/5">
-                <span className="text-primary font-black">Goldbrick:</span>
-                <span className="text-white font-bold text-right">{item.goldbrick}</span>
-              </div>
-              <div className="flex justify-between items-center text-white/40 text-[11px]">
-                <span>Regular Bank:</span>
-                <span>{item.bank}</span>
-              </div>
-              <div className="flex justify-between items-center text-white/40 text-[11px]">
-                <span>Other Brokers:</span>
-                <span>{item.broker}</span>
-              </div>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* Verified Investor Reviews */}
-      <section id="testimonials" className="py-16 sm:py-20 px-4 sm:px-6 max-w-7xl mx-auto w-full">
-        <div className="text-center max-w-2xl mx-auto mb-12 sm:mb-16">
-          <span className="text-[10px] font-mono font-bold uppercase tracking-widest text-primary">
-            Customer Reviews
-          </span>
-          <h2 className="text-2xl sm:text-4xl lg:text-5xl font-black italic uppercase tracking-tight text-white mt-1">
-            Trusted by Investors Worldwide
-          </h2>
-          <div className="flex justify-center gap-1 mt-3">
-            {[...Array(5)].map((_, i) => (
-              <Star key={i} className="size-4 fill-primary text-primary" />
-            ))}
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 sm:gap-8">
-          {[
-            {
-              name: 'Julian Montgomery',
-              role: 'Private Investor',
-              location: 'Zurich, Switzerland',
-              flag: '🇨🇭',
-              quote: 'Goldbrick has made managing passive income completely effortless. The automated trading bots deliver steady, reliable returns.',
-              portfolio: '$120,000 Active Vault'
-            },
-            {
-              name: 'Dr. Evelyn Vance',
-              role: 'Fund Strategist',
-              location: 'London, United Kingdom',
-              flag: '🇬🇧',
-              quote: 'The security and offline cold vaults are top class. Payouts arrive in my USDT wallet fast every single week without issues.',
-              portfolio: '$65,000 Active Plan'
-            },
-            {
-              name: 'Marcus Sterling',
-              role: 'Crypto Trader',
-              location: 'Austin, Texas, USA',
-              flag: '🇺🇸',
-              quote: 'Started with the Starter Vault and upgraded to Private Wealth within 30 days. Payouts are on time and support responds right away.',
-              portfolio: '$25,000 Active Plan'
-            }
-          ].map((item, idx) => (
-            <div key={idx} className="p-6 sm:p-8 rounded-3xl bg-card border border-border flex flex-col justify-between hover:border-primary/40 transition-colors">
-              <p className="text-xs sm:text-sm text-white/80 leading-relaxed font-medium italic mb-6">
-                "{item.quote}"
-              </p>
-
-              <div className="pt-4 border-t border-white/5 flex items-center justify-between">
-                <div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm">{item.flag}</span>
-                    <span className="text-sm font-bold text-white">{item.name}</span>
+                    <div className="space-y-2.5 mb-7">
+                      {[
+                        'Automated Trading Robot Payouts',
+                        '100% Reserve-Backed Principal',
+                        'Scheduled Profits Credited Automatically',
+                        'Fast Crypto Wallet Withdrawals'
+                      ].map((feat, fIdx) => (
+                        <div key={fIdx} className="flex items-start gap-2.5 text-xs text-white/75">
+                          <CheckCircle2 size={14} className="text-primary shrink-0 mt-0.5" />
+                          <span>{feat}</span>
+                        </div>
+                      ))}
+                    </div>
                   </div>
-                  <span className="text-[10px] text-white/50 block font-mono mt-0.5">{item.location}</span>
-                  <span className="text-[10px] text-primary font-mono font-bold">{item.portfolio}</span>
+
+                  <Link to="/register" className="w-full">
+                    <Button
+                      className={`w-full font-semibold text-xs sm:text-sm h-11 rounded-xl cursor-pointer ${
+                        isPopular
+                          ? 'bg-primary text-slate-950 hover:bg-amber-400 shadow-lg shadow-primary/20'
+                          : 'bg-white/[0.07] text-white hover:bg-white/[0.14] border border-white/10'
+                      }`}
+                    >
+                      Start With {plan.name}
+                    </Button>
+                  </Link>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+
+        {/* Live Global Activity Strip */}
+        <section id="activity" className="py-14 sm:py-16 px-4 sm:px-6 max-w-7xl mx-auto border-t border-white/[0.07] w-full">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-7">
+            <div>
+              <h3 className="text-lg sm:text-xl font-bold text-white flex items-center gap-2">
+                <span className="size-2 rounded-full bg-emerald-400" />
+                Recent Liquidity &amp; Payouts
+              </h3>
+              <p className="text-xs text-white/50 mt-1">
+                Live member deposits, account activations, and scheduled withdrawals.
+              </p>
+            </div>
+
+            <div className="text-xs font-mono text-white/50">
+              System Status: <span className="text-emerald-400 font-semibold">100% Operational</span>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3.5">
+            {RECENT_ACTIVITIES.map((act, i) => (
+              <div key={i} className="p-4 rounded-xl bg-[#0A0F18]/90 border border-white/10 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-base" role="img" aria-label="country">{act.flag}</span>
+                  <span className="text-[11px] font-mono text-white/45">{act.time}</span>
+                </div>
+                <div>
+                  <p className="text-xs font-medium text-white truncate">{act.user}</p>
+                  <p className="text-sm font-mono tabular-nums font-bold text-primary mt-0.5">{act.amount}</p>
+                </div>
+                <div className="text-[11px] text-emerald-400 pt-1.5 border-t border-white/[0.06] truncate">
+                  {act.action}
                 </div>
               </div>
-            </div>
-          ))}
-        </div>
-      </section>
+            ))}
+          </div>
+        </section>
 
-      {/* FAQ Accordion */}
-      <section id="faq" className="py-16 sm:py-20 px-4 sm:px-6 max-w-4xl mx-auto w-full">
-        <div className="text-center mb-10 sm:mb-14">
-          <span className="text-[10px] font-mono font-bold uppercase tracking-widest text-primary">
-            Help & Answers
-          </span>
-          <h2 className="text-2xl sm:text-4xl font-black italic uppercase tracking-tight text-white mt-1">
-            Frequently Asked Questions
-          </h2>
-        </div>
-
-        <div className="space-y-3">
-          {faqs.map((faq, idx) => {
-            const isOpen = expandedFaq === idx;
-            return (
-              <div
-                key={idx}
-                className="rounded-2xl bg-card border border-border overflow-hidden transition-all"
-              >
-                <button
-                  onClick={() => setExpandedFaq(isOpen ? null : idx)}
-                  className="w-full p-4 sm:p-5 text-left flex items-center justify-between gap-4 text-white hover:text-primary transition-colors"
-                >
-                  <span className="text-xs sm:text-sm font-bold">{faq.q}</span>
-                  <ChevronDown
-                    size={16}
-                    className={`shrink-0 transition-transform text-white/40 ${isOpen ? 'rotate-180 text-primary' : ''}`}
-                  />
-                </button>
-                {isOpen && (
-                  <div className="p-4 sm:p-5 pt-0 text-xs text-white/70 leading-relaxed border-t border-white/5 font-medium">
-                    {faq.a}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      </section>
-
-      {/* Bottom Conversion Banner */}
-      <section className="py-16 sm:py-20 px-4 sm:px-6 max-w-5xl mx-auto text-center w-full">
-        <div className="relative rounded-3xl sm:rounded-[2.5rem] bg-gradient-to-r from-amber-950/40 via-card/75 to-amber-950/40 backdrop-blur-md border border-primary/40 p-6 sm:p-12 overflow-hidden shadow-2xl">
-          <div className="max-w-2xl mx-auto space-y-4 sm:space-y-6">
-            <span className="text-[10px] font-mono font-bold uppercase tracking-widest text-primary">
-              Registration Open
-            </span>
-            <h2 className="text-2xl sm:text-4xl lg:text-5xl font-black italic uppercase tracking-tight text-white">
-              Ready to Grow Your Money?
+        {/* Security & Protection */}
+        <section id="security" className="py-16 sm:py-20 px-4 sm:px-6 max-w-7xl mx-auto w-full">
+          <div className="text-center max-w-2xl mx-auto mb-12 space-y-2">
+            <span className="text-xs font-medium text-primary">Security Architecture</span>
+            <h2 className="text-2xl sm:text-4xl font-bold tracking-tight text-white">
+              Built to Protect Your Funds
             </h2>
-            <p className="text-xs sm:text-sm text-white/70 font-medium px-2">
-              Join over 140,000 members who use Goldbrick’s automated platform every day.
+            <p className="text-sm text-white/60">
+              Offline cold-vault custody, automated risk limits, and full reserve backing.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="p-6 rounded-2xl bg-[#0A0F18]/90 border border-white/10 space-y-3 hover:border-primary/40 transition-colors">
+              <div className="size-11 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary">
+                <Lock size={20} />
+              </div>
+              <h3 className="text-base font-semibold text-white">Cold Vault Storage</h3>
+              <p className="text-xs sm:text-sm text-white/60 leading-relaxed">
+                Over 98% of platform reserves are secured offline inside multi-signature cold hardware vaults isolated from network risk.
+              </p>
+            </div>
+
+            <div className="p-6 rounded-2xl bg-[#0A0F18]/90 border border-white/10 space-y-3 hover:border-primary/40 transition-colors">
+              <div className="size-11 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary">
+                <Cpu size={20} />
+              </div>
+              <h3 className="text-base font-semibold text-white">Smart Risk Controls</h3>
+              <p className="text-xs sm:text-sm text-white/60 leading-relaxed">
+                Automated stop-loss and exposure caps protect member capital around the clock during volatile market swings.
+              </p>
+            </div>
+
+            <div className="p-6 rounded-2xl bg-[#0A0F18]/90 border border-white/10 space-y-3 hover:border-primary/40 transition-colors">
+              <div className="size-11 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary">
+                <Building2 size={20} />
+              </div>
+              <h3 className="text-base font-semibold text-white">1:1 Reserve Guarantee</h3>
+              <p className="text-xs sm:text-sm text-white/60 leading-relaxed">
+                GoldBrick maintains full 1:1 liquid reserve coverage across all client balances so withdrawals remain rapid anytime.
+              </p>
+            </div>
+          </div>
+        </section>
+
+        {/* Comparison Matrix */}
+        <section className="py-12 sm:py-16 px-4 sm:px-6 max-w-5xl mx-auto w-full">
+          <div className="text-center mb-8 sm:mb-10">
+            <h2 className="text-2xl sm:text-3xl font-bold tracking-tight text-white">
+              Why Investors Choose GoldBrick
+            </h2>
+          </div>
+
+          <div className="hidden md:block rounded-2xl bg-[#0A0F18]/90 border border-white/10 overflow-hidden">
+            <table className="w-full text-left text-xs">
+              <thead className="bg-white/[0.04] border-b border-white/[0.08]">
+                <tr>
+                  <th className="p-5 font-medium text-white/50">Standard</th>
+                  <th className="p-5 font-semibold text-primary">GoldBrick Exchange</th>
+                  <th className="p-5 font-medium text-white/45">Traditional Bank</th>
+                  <th className="p-5 font-medium text-white/45">Retail Broker</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-white/[0.06]">
+                <tr>
+                  <td className="p-5 text-white font-medium">Execution Engine</td>
+                  <td className="p-5 text-primary font-semibold">24/7 Automated Robot Fleet</td>
+                  <td className="p-5 text-white/45">Quarterly Loan Spreads</td>
+                  <td className="p-5 text-white/45">Manual Market Exposure</td>
+                </tr>
+                <tr>
+                  <td className="p-5 text-white font-medium">Withdrawal Speed</td>
+                  <td className="p-5 text-emerald-400 font-semibold">Instant to 15 Minutes</td>
+                  <td className="p-5 text-white/45">3 – 5 Business Days</td>
+                  <td className="p-5 text-white/45">1 – 3 Business Days</td>
+                </tr>
+                <tr>
+                  <td className="p-5 text-white font-medium">Funding Options</td>
+                  <td className="p-5 text-white font-semibold">BTC, ETH, USDT, Multi-Chain</td>
+                  <td className="p-5 text-white/45">Fiat Wire Only</td>
+                  <td className="p-5 text-white/45">Limited Card / Wire</td>
+                </tr>
+                <tr>
+                  <td className="p-5 text-white font-medium">Client Support</td>
+                  <td className="p-5 text-primary font-semibold">24/7 Direct Priority Desk</td>
+                  <td className="p-5 text-white/45">High-fee private banking</td>
+                  <td className="p-5 text-white/45">Automated ticket queue</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <div className="grid grid-cols-1 gap-3 md:hidden">
+            {[
+              { title: 'Execution Engine', goldbrick: '24/7 Automated Robot Fleet', bank: 'Quarterly Spreads', broker: 'Manual Exposure' },
+              { title: 'Withdrawal Speed', goldbrick: 'Instant to 15 Minutes', bank: '3 – 5 Business Days', broker: '1 – 3 Business Days' },
+              { title: 'Funding Options', goldbrick: 'BTC, ETH, USDT, Multi-Chain', bank: 'Fiat Wire Only', broker: 'Limited Card / Wire' },
+              { title: 'Client Support', goldbrick: '24/7 Direct Priority Desk', bank: 'Private banking only', broker: 'Ticket queue' },
+            ].map((item, idx) => (
+              <div key={idx} className="p-4 rounded-xl bg-[#0A0F18]/90 border border-white/10 space-y-2 text-xs">
+                <span className="font-medium text-white/50 block">{item.title}</span>
+                <div className="flex justify-between items-center py-1 border-b border-white/[0.06]">
+                  <span className="text-primary font-semibold">GoldBrick</span>
+                  <span className="text-white font-medium text-right">{item.goldbrick}</span>
+                </div>
+                <div className="flex justify-between items-center text-white/45">
+                  <span>Traditional Bank</span>
+                  <span>{item.bank}</span>
+                </div>
+                <div className="flex justify-between items-center text-white/45">
+                  <span>Retail Broker</span>
+                  <span>{item.broker}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {/* Testimonials */}
+        <section id="testimonials" className="py-16 sm:py-20 px-4 sm:px-6 max-w-7xl mx-auto w-full">
+          <div className="text-center max-w-2xl mx-auto mb-12 space-y-2">
+            <span className="text-xs font-medium text-primary">Client Feedback</span>
+            <h2 className="text-2xl sm:text-4xl font-bold tracking-tight text-white">
+              Trusted by Global Investors
+            </h2>
+            <div className="flex justify-center gap-1 pt-1">
+              {[...Array(5)].map((_, i) => (
+                <Star key={i} className="size-4 fill-primary text-primary" />
+              ))}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {[
+              {
+                name: 'Julian Montgomery',
+                location: 'Zurich, Switzerland',
+                flag: '🇨🇭',
+                quote: 'GoldBrick made managing automated crypto returns seamless. Withdrawals settle reliably without unnecessary friction.',
+                portfolio: '$120,000 Active Vault'
+              },
+              {
+                name: 'Dr. Evelyn Vance',
+                location: 'London, United Kingdom',
+                flag: '🇬🇧',
+                quote: 'Cold hardware custody and clear audit tracking give me real confidence. My USDT payouts arrive within minutes.',
+                portfolio: '$65,000 Active Plan'
+              },
+              {
+                name: 'Marcus Sterling',
+                location: 'Austin, Texas, USA',
+                flag: '🇺🇸',
+                quote: 'Started on the Starter Vault and scaled up within my first month. The support team replies quickly whenever needed.',
+                portfolio: '$25,000 Active Plan'
+              }
+            ].map((item, idx) => (
+              <div key={idx} className="p-6 rounded-2xl bg-[#0A0F18]/90 border border-white/10 flex flex-col justify-between space-y-5">
+                <p className="text-sm text-white/75 leading-relaxed">
+                  &ldquo;{item.quote}&rdquo;
+                </p>
+
+                <div className="pt-4 border-t border-white/[0.07]">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm">{item.flag}</span>
+                    <span className="text-sm font-semibold text-white">{item.name}</span>
+                  </div>
+                  <span className="text-xs text-white/45 block mt-0.5">{item.location}</span>
+                  <span className="text-xs text-primary font-mono font-medium block mt-1">{item.portfolio}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        {/* FAQ */}
+        <section id="faq" className="py-16 sm:py-20 px-4 sm:px-6 max-w-4xl mx-auto w-full">
+          <div className="text-center mb-10 space-y-1.5">
+            <span className="text-xs font-medium text-primary">Help Center</span>
+            <h2 className="text-2xl sm:text-4xl font-bold tracking-tight text-white">
+              Frequently Asked Questions
+            </h2>
+          </div>
+
+          <div className="space-y-3">
+            {faqs.map((faq, idx) => {
+              const isOpen = expandedFaq === idx;
+              return (
+                <div
+                  key={idx}
+                  className="rounded-xl bg-[#0A0F18]/90 border border-white/10 overflow-hidden"
+                >
+                  <button
+                    type="button"
+                    onClick={() => setExpandedFaq(isOpen ? null : idx)}
+                    className="w-full p-4 sm:p-5 text-left flex items-center justify-between gap-4 text-white hover:text-primary transition-colors cursor-pointer"
+                  >
+                    <span className="text-sm font-semibold">{faq.q}</span>
+                    <ChevronDown
+                      size={16}
+                      className={`shrink-0 transition-transform text-white/45 ${isOpen ? 'rotate-180 text-primary' : ''}`}
+                    />
+                  </button>
+                  {isOpen && (
+                    <div className="px-4 sm:px-5 pb-4 sm:pb-5 pt-2 text-xs sm:text-sm text-white/65 leading-relaxed border-t border-white/[0.06]">
+                      {faq.a}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </section>
+
+        {/* Bottom CTA */}
+        <section className="py-14 sm:py-20 px-4 sm:px-6 max-w-5xl mx-auto text-center w-full">
+          <div className="rounded-3xl bg-gradient-to-br from-amber-500/15 via-[#0A0F18]/90 to-[#0A0F18]/90 backdrop-blur-md border border-primary/35 p-8 sm:p-12 shadow-2xl space-y-5">
+            <span className="text-xs font-medium text-primary">Open Membership</span>
+            <h2 className="text-2xl sm:text-4xl font-bold tracking-tight text-white">
+              Ready to Grow Your Digital Portfolio?
+            </h2>
+            <p className="text-sm text-white/65 max-w-xl mx-auto">
+              Join over 140,000 members investing securely with GoldBrick&apos;s automated vaults.
             </p>
             <div className="pt-2">
               <Link to="/register">
-                <Button size="lg" className="w-full sm:w-auto bg-primary text-slate-950 hover:bg-amber-400 font-black text-xs sm:text-sm uppercase tracking-wider px-8 sm:px-10 h-12 sm:h-14 rounded-2xl shadow-xl shadow-primary/30 transition-all hover:scale-105">
+                <Button size="lg" className="w-full sm:w-auto bg-primary text-slate-950 hover:bg-amber-400 font-semibold text-sm px-8 h-12 rounded-xl shadow-xl shadow-primary/25 cursor-pointer">
                   Open Your Account <ArrowRight size={16} className="ml-2" />
                 </Button>
               </Link>
             </div>
           </div>
+        </section>
+
+        {/* Discreet Admin Link */}
+        <div className="fixed bottom-3 right-3 opacity-20 hover:opacity-100 transition-opacity z-40">
+          <Link to="/admin/login" className="text-[10px] font-mono text-white/50 bg-black/80 px-2 py-1 rounded border border-white/10">
+            Admin
+          </Link>
         </div>
-      </section>
 
-      {/* Hidden Admin Access Trigger */}
-      <div className="fixed bottom-3 right-3 opacity-20 hover:opacity-100 transition-opacity z-40">
-        <Link to="/admin/login" className="text-[9px] font-mono text-white/40 bg-black/80 px-2 py-1 rounded border border-white/10">
-          Admin
-        </Link>
-      </div>
+        {/* Footer */}
+        <footer className="border-t border-white/[0.08] py-12 px-4 sm:px-6 bg-[#05080D]/80 backdrop-blur-md w-full">
+          <div className="max-w-7xl mx-auto grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-8">
+            <div className="space-y-3 sm:col-span-2 md:col-span-1">
+              <Logo className="h-8" />
+              <p className="text-xs text-white/50 leading-relaxed">
+                Multi-asset digital investment platform with automated execution and cold hardware custody.
+              </p>
+              <div className="text-xs font-mono text-white/40">
+                &copy; 2026 GoldBrick Exchange. All rights reserved.
+              </div>
+            </div>
 
-      {/* Footer */}
-      <footer className="border-t border-white/10 py-10 sm:py-14 px-4 sm:px-6 bg-[#05080D]/65 backdrop-blur-md w-full relative">
-        <div className="max-w-7xl mx-auto grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-8 sm:gap-10">
-          <div className="space-y-3 sm:space-y-4 sm:col-span-2 md:col-span-1">
-            <Logo className="h-8" />
-            <p className="text-xs text-white/50 leading-relaxed font-medium">
-              Multi-asset investment platform providing automated crypto trading and secure cold hardware protection.
-            </p>
-            <div className="text-[10px] font-mono text-white/40">
-              © 2026 Goldbrick Exchange. All rights reserved.
+            <div className="space-y-2.5">
+              <h4 className="text-xs font-semibold text-white">Investment Plans</h4>
+              <ul className="space-y-2 text-xs text-white/55">
+                <li><a href="#vaults" className="hover:text-primary transition-colors">Starter Vault</a></li>
+                <li><a href="#vaults" className="hover:text-primary transition-colors">Private Wealth Tier</a></li>
+                <li><a href="#vaults" className="hover:text-primary transition-colors">Sovereign Institutional</a></li>
+                <li><a href="#calculator" className="hover:text-primary transition-colors">Profit Calculator</a></li>
+              </ul>
+            </div>
+
+            <div className="space-y-2.5">
+              <h4 className="text-xs font-semibold text-white">Safety &amp; Custody</h4>
+              <ul className="space-y-2 text-xs text-white/55">
+                <li><a href="#security" className="hover:text-primary transition-colors">Cold Vaults</a></li>
+                <li><a href="#security" className="hover:text-primary transition-colors">Reserve Coverage</a></li>
+                <li><a href="#security" className="hover:text-primary transition-colors">Risk Controls</a></li>
+                <li><Link to="/terms" className="hover:text-primary transition-colors">Terms of Service</Link></li>
+              </ul>
+            </div>
+
+            <div className="space-y-2.5">
+              <h4 className="text-xs font-semibold text-white">Client Portal</h4>
+              <ul className="space-y-2 text-xs text-white/55">
+                <li><Link to="/login" className="hover:text-primary transition-colors">Client Sign In</Link></li>
+                <li><Link to="/register" className="hover:text-primary transition-colors">Open Account</Link></li>
+                <li><a href="#faq" className="hover:text-primary transition-colors">Help &amp; FAQ</a></li>
+                <li><Link to="/support" className="hover:text-primary transition-colors">24/7 Support Desk</Link></li>
+              </ul>
             </div>
           </div>
-
-          <div className="space-y-2.5 sm:space-y-3">
-            <h4 className="text-xs font-mono font-black uppercase tracking-wider text-white">Investment Plans</h4>
-            <ul className="space-y-2 text-xs text-white/60 font-medium">
-              <li><a href="#vaults" className="hover:text-primary transition-colors">Starter Plan</a></li>
-              <li><a href="#vaults" className="hover:text-primary transition-colors">Private Wealth Tier</a></li>
-              <li><a href="#vaults" className="hover:text-primary transition-colors">Institutional Tier</a></li>
-              <li><a href="#calculator" className="hover:text-primary transition-colors">Profit Calculator</a></li>
-            </ul>
-          </div>
-
-          <div className="space-y-2.5 sm:space-y-3">
-            <h4 className="text-xs font-mono font-black uppercase tracking-wider text-white">Safety & Security</h4>
-            <ul className="space-y-2 text-xs text-white/60 font-medium">
-              <li><a href="#security" className="hover:text-primary transition-colors">Offline Vaults</a></li>
-              <li><a href="#security" className="hover:text-primary transition-colors">Fund Protection</a></li>
-              <li><a href="#security" className="hover:text-primary transition-colors">Risk Shields</a></li>
-              <li><Link to="/terms" className="hover:text-primary transition-colors">Terms of Service</Link></li>
-            </ul>
-          </div>
-
-          <div className="space-y-2.5 sm:space-y-3">
-            <h4 className="text-xs font-mono font-black uppercase tracking-wider text-white">Client Portal</h4>
-            <ul className="space-y-2 text-xs text-white/60 font-medium">
-              <li><Link to="/login" className="hover:text-primary transition-colors">Client Login</Link></li>
-              <li><Link to="/register" className="hover:text-primary transition-colors">Open Account</Link></li>
-              <li><a href="#faq" className="hover:text-primary transition-colors">Help & FAQ</a></li>
-              <li><Link to="/support" className="hover:text-primary transition-colors">24/7 Support Desk</Link></li>
-            </ul>
-          </div>
-        </div>
-      </footer>
+        </footer>
       </div>
     </div>
   );

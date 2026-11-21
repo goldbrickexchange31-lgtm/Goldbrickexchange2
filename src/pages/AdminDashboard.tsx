@@ -160,6 +160,10 @@ export default function AdminDashboard() {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedTx, setSelectedTx] = useState<any>(null);
   const [isReceiptOpen, setIsReceiptOpen] = useState(false);
+  const [receiptAmountInput, setReceiptAmountInput] = useState('');
+  const [depositApproveTx, setDepositApproveTx] = useState<any>(null);
+  const [depositAmountInput, setDepositAmountInput] = useState('');
+  const [isApprovingDeposit, setIsApprovingDeposit] = useState(false);
   const [isPlanModalOpen, setIsPlanModalOpen] = useState(false);
   const [editingPlan, setEditingPlan] = useState<any>(null);
   const [isWalletModalOpen, setIsWalletModalOpen] = useState(false);
@@ -170,6 +174,14 @@ export default function AdminDashboard() {
     address: '',
     qrCodeUrl: ''
   });
+
+  useEffect(() => {
+    if (selectedTx) {
+      setReceiptAmountInput(selectedTx.amount && Number(selectedTx.amount) > 0 ? String(selectedTx.amount) : '');
+    } else {
+      setReceiptAmountInput('');
+    }
+  }, [selectedTx]);
 
   useEffect(() => {
     if (editingWallet) {
@@ -521,16 +533,40 @@ export default function AdminDashboard() {
     }
   }, [activeSection]);
 
-  const handleApproveTransaction = async (tx: any) => {
+  const openDepositApprovalModal = (tx: any) => {
+    setDepositApproveTx(tx);
+    setDepositAmountInput(tx.amount && Number(tx.amount) > 0 ? String(tx.amount) : '');
+  };
+
+  const handleApproveTransaction = async (tx: any, customAmount?: number) => {
     try {
       const txRef = doc(db, 'transactions', tx.id);
       const userRef = doc(db, 'users', tx.userId);
 
       if (tx.type === 'deposit') {
+        const finalAmount = customAmount !== undefined ? customAmount : Number(tx.amount);
+        if (!Number.isFinite(finalAmount) || finalAmount <= 0) {
+          toast.error('Please enter a valid USD deposit amount greater than 0.');
+          return;
+        }
+
+        setIsApprovingDeposit(true);
         await updateDoc(userRef, {
-          balance: increment(tx.amount)
+          balance: increment(finalAmount)
         });
-        toast.success(`Deposit Approved! $${tx.amount} added to user.`);
+        await updateDoc(txRef, {
+          amount: finalAmount,
+          amountPendingAdmin: false,
+          status: 'approved',
+          approvedAt: serverTimestamp(),
+          approvedBy: auth.currentUser?.email || 'admin',
+          updatedAt: serverTimestamp()
+        });
+        toast.success(`Deposit Approved! $${finalAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} credited to ${tx.userName || 'user'}.`);
+        setDepositApproveTx(null);
+        setDepositAmountInput('');
+        setIsReceiptOpen(false);
+        return;
       } else {
         toast.success(`Withdrawal marked as approved.`);
       }
@@ -543,6 +579,8 @@ export default function AdminDashboard() {
       setIsReceiptOpen(false);
     } catch (e: any) {
       toast.error('Could not approve. Please check permissions.');
+    } finally {
+      setIsApprovingDeposit(false);
     }
   };
 
@@ -1166,7 +1204,11 @@ export default function AdminDashboard() {
                                    </div>
                                 </div>
                                 <div className="text-right">
-                                   <p className={`font-black italic text-lg ${tx.type === 'deposit' ? 'text-primary' : 'text-orange-600'}`}>${tx.amount?.toLocaleString()}</p>
+                                   {tx.type === 'deposit' && tx.status === 'pending' && (!tx.amount || Number(tx.amount) <= 0 || tx.amountPendingAdmin) ? (
+                                     <p className="font-bold text-xs uppercase tracking-wider text-amber-400">Set Amount</p>
+                                   ) : (
+                                     <p className={`font-black italic text-lg ${tx.type === 'deposit' ? 'text-primary' : 'text-orange-600'}`}>${tx.amount?.toLocaleString()}</p>
+                                   )}
                                    <Badge className={`text-[8px] font-black rounded-md border-none ${tx.status === 'pending' ? 'bg-primary text-primary-foreground' : tx.status === 'approved' ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'}`}>
                                       {tx.status}
                                    </Badge>
@@ -1834,7 +1876,16 @@ export default function AdminDashboard() {
                                        <p className="text-[10px] text-slate-400 font-mono tracking-tight font-bold italic">{tx.userEmail}</p>
                                     </td>
                                     <td className="p-6">
-                                       <p className="text-2xl font-black italic text-primary tracking-tighter font-mono">${tx.amount?.toLocaleString()}</p>
+                                       {tx.status === 'pending' && (!tx.amount || Number(tx.amount) <= 0 || tx.amountPendingAdmin) ? (
+                                         <div className="space-y-0.5">
+                                           <span className="inline-flex items-center gap-1.5 text-xs font-bold text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2.5 py-1 rounded-lg">
+                                             Pending Admin Amount
+                                           </span>
+                                           <p className="text-[10px] text-slate-400 font-mono">Set USD value on approval</p>
+                                         </div>
+                                       ) : (
+                                         <p className="text-2xl font-black italic text-primary tracking-tighter font-mono">${tx.amount?.toLocaleString()}</p>
+                                       )}
                                     </td>
                                     <td className="p-6 text-[10px] font-black uppercase italic text-slate-400">
                                        {tx.currency} ({tx.network})
@@ -1846,15 +1897,15 @@ export default function AdminDashboard() {
                                     </td>
                                     <td className="p-6 text-right">
                                        <div className="flex items-center justify-end gap-3">
-                                          <Button size="icon" variant="ghost" className="size-10 rounded-xl bg-background border border-border hover:bg-white/5 text-slate-500" onClick={() => { setSelectedTx(tx); setIsReceiptOpen(true); }}>
+                                          <Button size="icon" variant="ghost" className="size-10 rounded-xl bg-background border border-border hover:bg-white/5 text-slate-400 hover:text-white" onClick={() => { setSelectedTx(tx); setIsReceiptOpen(true); }} title="Inspect Proof & Set Amount">
                                              <Eye size={18} />
                                           </Button>
                                           {tx.status === 'pending' && (
                                             <>
-                                              <Button size="icon" className="size-10 rounded-xl bg-green-500 hover:bg-green-600 text-white shadow-lg shadow-green-200" onClick={() => handleApproveTransaction(tx)}>
+                                              <Button size="icon" className="size-10 rounded-xl bg-green-500 hover:bg-green-600 text-white shadow-lg shadow-green-500/20" onClick={() => openDepositApprovalModal(tx)} title="Set Amount & Approve Deposit">
                                                  <Check size={18} />
                                               </Button>
-                                              <Button size="icon" className="size-10 rounded-xl bg-red-500 hover:bg-red-600 text-white shadow-lg shadow-red-200" onClick={() => handleRejectTransaction(tx)}>
+                                              <Button size="icon" className="size-10 rounded-xl bg-red-500 hover:bg-red-600 text-white shadow-lg shadow-red-500/20" onClick={() => handleRejectTransaction(tx)} title="Reject Deposit">
                                                  <X size={18} />
                                               </Button>
                                             </>
@@ -2444,60 +2495,202 @@ export default function AdminDashboard() {
 
       {/* Detail Modal */}
       <Dialog open={isReceiptOpen} onOpenChange={setIsReceiptOpen}>
-        <DialogContent className="bg-card border-border text-slate-500 max-w-lg rounded-[2.5rem] p-0 overflow-hidden shadow-2xl border">
-           <DialogHeader className="p-8 bg-white/5 border-b border-border text-center">
+        <DialogContent className="bg-card border-border text-slate-500 max-w-lg rounded-[2rem] p-0 overflow-hidden shadow-2xl border">
+           <DialogHeader className="p-6 sm:p-8 bg-white/5 border-b border-border text-center">
               <DialogTitle className="text-2xl font-black italic vibrant-text uppercase">Audit Transaction</DialogTitle>
            </DialogHeader>
            
-           <div className="p-8 space-y-6 max-h-[60vh] overflow-y-auto no-scrollbar">
+           <div className="p-6 sm:p-8 space-y-6 max-h-[62vh] overflow-y-auto no-scrollbar">
               {selectedTx && (
                 <div className="space-y-6">
-                   <div className="grid grid-cols-2 gap-4 bg-white/5 p-6 rounded-2xl border border-border">
+                   <div className="grid grid-cols-2 gap-4 bg-white/5 p-5 rounded-2xl border border-border">
                       <div>
-                         <p className="text-[8px] font-black text-slate-400 uppercase mb-1">Status</p>
+                         <p className="text-[9px] font-black text-slate-400 uppercase mb-1">Status</p>
                          <Badge className={`rounded-md px-2 text-[9px] uppercase font-black border-none ${selectedTx.status === 'pending' ? 'bg-primary text-primary-foreground' : selectedTx.status === 'approved' ? 'bg-green-100 text-green-600' : 'bg-red-100 text-red-600'}`}>
                             {selectedTx.status}
                          </Badge>
                       </div>
                       <div>
-                         <p className="text-[8px] font-black text-slate-400 uppercase mb-1">Amount</p>
-                         <p className="font-black text-xl italic text-white font-mono">${selectedTx.amount?.toLocaleString()}</p>
+                         <p className="text-[9px] font-black text-slate-400 uppercase mb-1">
+                           {selectedTx.type === 'deposit' && selectedTx.status === 'pending' ? 'Submitted Asset' : 'Amount'}
+                         </p>
+                         {selectedTx.type === 'deposit' && selectedTx.status === 'pending' && (!selectedTx.amount || Number(selectedTx.amount) <= 0 || selectedTx.amountPendingAdmin) ? (
+                           <p className="font-bold text-sm text-amber-400">{selectedTx.currency} ({selectedTx.network})</p>
+                         ) : (
+                           <p className="font-black text-xl italic text-white font-mono">${selectedTx.amount?.toLocaleString()}</p>
+                         )}
                       </div>
                       <div className="col-span-2">
-                         <p className="text-[8px] font-black text-slate-400 uppercase mb-1">Transaction Hash</p>
-                         <p className="text-[9px] font-mono text-primary break-all bg-background p-3 rounded-lg border border-border italic font-bold">{selectedTx.txHash || 'NOT PROVIDED'}</p>
+                         <p className="text-[9px] font-black text-slate-400 uppercase mb-1">Transaction Hash</p>
+                         <p className="text-[10px] font-mono text-primary break-all bg-background p-3 rounded-lg border border-border font-bold">{selectedTx.txHash || 'NOT PROVIDED'}</p>
                       </div>
                    </div>
 
+                   {selectedTx.type === 'deposit' && selectedTx.status === 'pending' && (
+                     <div className="p-5 rounded-2xl bg-primary/5 border border-primary/25 space-y-3">
+                       <Label className="text-[10px] font-black uppercase tracking-wider text-primary block">
+                         Received Deposit Amount to Credit (USD) *
+                       </Label>
+                       <div className="relative">
+                         <DollarSign className="absolute left-3.5 top-1/2 -translate-y-1/2 size-4 text-primary" />
+                         <Input
+                           type="number"
+                           step="0.01"
+                           min="0.01"
+                           placeholder="Enter exact USD received (e.g. 500)"
+                           value={receiptAmountInput}
+                           onChange={(e) => setReceiptAmountInput(e.target.value)}
+                           className="bg-background border-primary/30 h-12 pl-10 font-mono font-bold text-white text-lg rounded-xl"
+                         />
+                       </div>
+                       <p className="text-[11px] text-white/55 leading-relaxed">
+                         Confirm the exact USD equivalent received in your wallet. This amount will be recorded and credited to <span className="text-white font-semibold">{selectedTx.userName || selectedTx.userEmail}</span>.
+                       </p>
+                     </div>
+                   )}
+
                    {selectedTx.receiptUrl && (
-                     <div className="space-y-4">
-                        <Label className="text-[9px] font-black uppercase text-center block text-slate-400">Payment Screenshot</Label>
-                        <div className="rounded-2xl overflow-hidden border-2 border-dashed border-border p-2 bg-white/5 group">
+                     <div className="space-y-3">
+                        <Label className="text-[10px] font-black uppercase text-center block text-slate-400">Payment Screenshot</Label>
+                        <div className="rounded-2xl overflow-hidden border border-border p-2 bg-white/5 group">
                            <img 
                              src={selectedTx.receiptUrl} 
                              alt="Payment Proof" 
-                             className="w-full rounded-xl transition-transform duration-700 group-hover:scale-110 cursor-pointer" 
+                             className="w-full rounded-xl transition-transform duration-500 group-hover:scale-[1.03] cursor-pointer max-h-72 object-contain bg-black/40" 
                              onClick={() => window.open(selectedTx.receiptUrl, '_blank')}
                            />
                         </div>
-                        <p className="text-[9px] text-slate-300 text-center uppercase font-black">Tap image to view full size</p>
+                        <p className="text-[10px] text-slate-400 text-center">Tap image to view full size</p>
                      </div>
                    )}
                 </div>
               )}
            </div>
 
-           <DialogFooter className="p-8 border-t border-border flex gap-4 bg-white/5">
+           <DialogFooter className="p-6 sm:p-8 border-t border-border flex gap-3 bg-white/5">
               {selectedTx?.status === 'pending' && (
                 <>
-                   <Button variant="ghost" className="flex-1 h-14 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white rounded-2xl font-black uppercase text-xs" onClick={() => handleRejectTransaction(selectedTx)}>Reject</Button>
-                   <Button className="flex-1 h-14 bg-green-500 text-white hover:bg-green-600 rounded-2xl font-black uppercase shadow-lg shadow-green-100 text-xs" onClick={() => handleApproveTransaction(selectedTx)}>Approve</Button>
+                   <Button variant="ghost" className="flex-1 h-12 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white rounded-xl font-black uppercase text-xs" onClick={() => handleRejectTransaction(selectedTx)}>Reject</Button>
+                   <Button
+                     disabled={isApprovingDeposit}
+                     className="flex-1 h-12 bg-green-500 text-white hover:bg-green-600 rounded-xl font-black uppercase shadow-lg shadow-green-500/20 text-xs"
+                     onClick={() => {
+                       if (selectedTx.type === 'deposit') {
+                         const parsed = parseFloat(receiptAmountInput);
+                         handleApproveTransaction(selectedTx, parsed);
+                       } else {
+                         handleApproveTransaction(selectedTx);
+                       }
+                     }}
+                   >
+                     {isApprovingDeposit ? 'Crediting...' : selectedTx.type === 'deposit' ? 'Credit & Approve' : 'Approve'}
+                   </Button>
                 </>
               )}
               {selectedTx?.status !== 'pending' && (
-                <Button className="w-full h-14 bg-background border border-border text-slate-400 rounded-2xl font-black uppercase text-xs hover:bg-white/5" onClick={() => setIsReceiptOpen(false)}>Close Window</Button>
+                <Button className="w-full h-12 bg-background border border-border text-slate-400 rounded-xl font-black uppercase text-xs hover:bg-white/5" onClick={() => setIsReceiptOpen(false)}>Close Window</Button>
               )}
            </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Approve Deposit Amount Modal */}
+      <Dialog open={Boolean(depositApproveTx)} onOpenChange={(open) => { if (!open) { setDepositApproveTx(null); setDepositAmountInput(''); } }}>
+        <DialogContent className="bg-card border-border text-white max-w-md rounded-3xl p-0 overflow-hidden shadow-2xl border">
+          <DialogHeader className="p-6 bg-white/5 border-b border-border">
+            <DialogTitle className="text-xl font-bold text-white flex items-center gap-2.5">
+              <div className="size-9 rounded-xl bg-green-500/15 border border-green-500/30 flex items-center justify-center text-green-400">
+                <DollarSign className="size-5" />
+              </div>
+              Set Deposit Amount Received
+            </DialogTitle>
+            <DialogDescription className="text-xs text-white/55 mt-1">
+              Verify the crypto payment proof and enter the exact USD amount to credit to this user&apos;s balance.
+            </DialogDescription>
+          </DialogHeader>
+
+          {depositApproveTx && (
+            <div className="p-6 space-y-5">
+              <div className="p-4 rounded-2xl bg-white/5 border border-white/10 space-y-2 text-xs">
+                <div className="flex justify-between">
+                  <span className="text-white/50">Client</span>
+                  <span className="font-bold text-white">{depositApproveTx.userName || 'Investor'}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-white/50">Email</span>
+                  <span className="font-mono text-white/80">{depositApproveTx.userEmail}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-white/50">Asset &amp; Network</span>
+                  <span className="font-mono font-bold text-primary">{depositApproveTx.currency} ({depositApproveTx.network})</span>
+                </div>
+                {depositApproveTx.txHash && (
+                  <div className="pt-1 border-t border-white/5">
+                    <span className="text-white/40 block mb-0.5">TX Hash</span>
+                    <span className="font-mono text-[11px] text-white/80 break-all">{depositApproveTx.txHash}</span>
+                  </div>
+                )}
+              </div>
+
+              {depositApproveTx.receiptUrl && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <Label className="text-xs font-semibold text-white/70">Payment Proof Screenshot</Label>
+                    <button
+                      type="button"
+                      onClick={() => window.open(depositApproveTx.receiptUrl, '_blank')}
+                      className="text-[11px] text-primary hover:underline inline-flex items-center gap-1 cursor-pointer"
+                    >
+                      Open full image <ExternalLink className="size-3" />
+                    </button>
+                  </div>
+                  <img
+                    src={depositApproveTx.receiptUrl}
+                    alt="Deposit receipt"
+                    className="w-full max-h-44 object-contain rounded-xl border border-white/10 bg-black/50 cursor-pointer"
+                    onClick={() => window.open(depositApproveTx.receiptUrl, '_blank')}
+                  />
+                </div>
+              )}
+
+              <div className="space-y-2">
+                <Label className="text-xs font-semibold text-white">Amount Received (USD) *</Label>
+                <div className="relative">
+                  <DollarSign className="absolute left-3.5 top-1/2 -translate-y-1/2 size-4 text-primary" />
+                  <Input
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    autoFocus
+                    placeholder="e.g. 1500.00"
+                    value={depositAmountInput}
+                    onChange={(e) => setDepositAmountInput(e.target.value)}
+                    className="bg-background border-primary/40 h-12 pl-10 font-mono font-bold text-lg text-white rounded-xl"
+                  />
+                </div>
+              </div>
+            </div>
+          )}
+
+          <DialogFooter className="p-6 border-t border-border bg-white/5 flex gap-3">
+            <Button
+              type="button"
+              variant="ghost"
+              disabled={isApprovingDeposit}
+              onClick={() => { setDepositApproveTx(null); setDepositAmountInput(''); }}
+              className="flex-1 h-11 rounded-xl text-white/60 hover:text-white"
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              disabled={isApprovingDeposit || !depositAmountInput || Number(depositAmountInput) <= 0}
+              onClick={() => depositApproveTx && handleApproveTransaction(depositApproveTx, parseFloat(depositAmountInput))}
+              className="flex-1 h-11 bg-green-500 hover:bg-green-600 text-white font-bold rounded-xl shadow-lg shadow-green-500/20"
+            >
+              {isApprovingDeposit ? 'Crediting...' : 'Approve & Credit Balance'}
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

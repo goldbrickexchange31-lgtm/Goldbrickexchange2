@@ -354,22 +354,22 @@ export default function SupportPage() {
 
   return (
     <DashboardLayout>
-      <div className="flex-1 min-h-0 flex flex-col gap-4 md:gap-6 h-full">
-        {/* Desktop Top Heading (hidden on mobile for full-page chat experience) */}
-        <div className="hidden md:flex items-center justify-between gap-6 shrink-0">
+      <div className="flex-1 min-h-0 flex flex-col gap-4 md:gap-5 h-full">
+        {/* Desktop Top Heading */}
+        <div className="hidden md:flex items-center justify-between gap-6 shrink-0 pb-3 border-b border-white/[0.08]">
           <div className="space-y-1">
-            <h1 className="text-3xl font-black italic tracking-tighter uppercase vibrant-text leading-tight flex items-center gap-3">
-              <MessageSquare className="text-primary size-8" /> Support Hub
+            <h1 className="text-2xl font-bold tracking-tight text-white flex items-center gap-2.5">
+              <MessageSquare className="text-primary size-6" /> Priority Support Desk
             </h1>
-            <p className="text-white/45 font-bold text-[11px] uppercase tracking-widest">
-              Encrypted point-to-point communication · Avg response{' '}
-              <span className="text-primary">under 15 minutes</span>
+            <p className="text-xs text-white/55">
+              Encrypted direct messaging · Typical response time{' '}
+              <span className="text-primary font-medium">under 15 minutes</span>
             </p>
           </div>
           {config?.whatsappLink && (
             <a href={config.whatsappLink} target="_blank" rel="noopener noreferrer">
-              <Button className="bg-[#25D366] hover:bg-[#128C7E] text-white font-black h-12 px-6 rounded-2xl shadow-lg flex items-center gap-2.5 transition-all hover:scale-105 uppercase text-xs tracking-widest cursor-pointer">
-                <WhatsApp className="size-5" /> WhatsApp Support
+              <Button className="bg-[#25D366] hover:bg-[#128C7E] text-white font-semibold h-10 px-4 rounded-xl shadow-lg flex items-center gap-2 text-xs cursor-pointer">
+                <WhatsApp className="size-4" /> WhatsApp Support
               </Button>
             </a>
           )}
@@ -378,28 +378,28 @@ export default function SupportPage() {
         {/* Main Chat Grid (Full-Screen Mobile + Balanced Desktop Split) */}
         <div className="flex-1 min-h-0 grid grid-cols-1 xl:grid-cols-3 gap-6 h-full">
           <div className="xl:col-span-2 flex flex-col min-h-0 h-full">
-            <Card className="bg-card border-border flex-1 min-h-0 flex flex-col shadow-2xl rounded-none md:rounded-[2rem] overflow-hidden border-0 md:border h-full">
+            <Card className="bg-[#0A0F18]/95 border-white/10 flex-1 min-h-0 flex flex-col shadow-2xl rounded-none md:rounded-2xl overflow-hidden border-0 md:border h-full">
               {/* Compact Mobile-Optimized Chat Header */}
-              <CardHeader className="border-b border-border bg-white/5 px-3.5 py-3 md:px-6 md:py-4 shrink-0">
+              <CardHeader className="border-b border-white/[0.08] bg-white/[0.03] px-3.5 py-3 md:px-5 md:py-3.5 shrink-0">
                 <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2.5 md:gap-3.5 min-w-0">
+                  <div className="flex items-center gap-2.5 md:gap-3 min-w-0">
                     <Link
                       to="/dashboard"
                       aria-label="Back to Dashboard"
-                      className="md:hidden size-9 rounded-xl bg-white/5 border border-border flex items-center justify-center text-white/70 hover:text-white shrink-0"
+                      className="md:hidden size-9 rounded-xl bg-white/[0.05] border border-white/10 flex items-center justify-center text-white/75 hover:text-white shrink-0"
                     >
                       <ArrowLeft className="size-4" />
                     </Link>
-                    <div className="relative size-10 md:size-11 bg-primary/15 rounded-xl md:rounded-2xl border border-primary/30 flex items-center justify-center shrink-0">
-                      <Headphones className="text-primary size-5" />
-                      <span className="absolute -bottom-0.5 -right-0.5 size-2.5 rounded-full bg-green-500 ring-2 ring-card animate-pulse" />
+                    <div className="relative size-9 md:size-10 bg-primary/15 rounded-xl border border-primary/30 flex items-center justify-center shrink-0">
+                      <Headphones className="text-primary size-4.5" />
+                      <span className="absolute -bottom-0.5 -right-0.5 size-2.5 rounded-full bg-emerald-500 ring-2 ring-[#0A0F18]" />
                     </div>
                     <div className="min-w-0">
-                      <CardTitle className="text-sm md:text-base font-black text-white italic uppercase tracking-tight truncate">
+                      <CardTitle className="text-sm md:text-base font-semibold text-white truncate">
                         GoldBrick Support
                       </CardTitle>
-                      <div className="flex items-center gap-1.5 text-[10px] text-green-400 font-bold uppercase tracking-wider">
-                        <span className="truncate">Priority Desk • Online</span>
+                      <div className="flex items-center gap-1.5 text-[11px] text-emerald-400 font-medium">
+                        <span className="truncate">Priority Desk · Online</span>
                       </div>
                     </div>
                   </div>
@@ -410,7 +410,7 @@ export default function SupportPage() {
                         href={config.whatsappLink}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="xl:hidden inline-flex items-center gap-1.5 h-8 px-2.5 rounded-xl bg-[#25D366]/15 border border-[#25D366]/30 text-[#25D366] text-[10px] font-black uppercase tracking-wider"
+                        className="xl:hidden inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg bg-[#25D366]/15 border border-[#25D366]/30 text-[#25D366] text-xs font-medium"
                         title="WhatsApp Support"
                       >
                         <WhatsApp className="size-3.5" />
@@ -421,28 +421,28 @@ export default function SupportPage() {
                       type="button"
                       onClick={() => setIsInfoOpen(true)}
                       aria-label="Security Directives & Info"
-                      className="xl:hidden size-8 rounded-xl bg-white/5 border border-border flex items-center justify-center text-white/70 hover:text-white cursor-pointer"
+                      className="xl:hidden size-8 rounded-lg bg-white/[0.05] border border-white/10 flex items-center justify-center text-white/70 hover:text-white cursor-pointer"
                     >
                       <Info className="size-4" />
                     </button>
-                    <Badge className="hidden sm:inline-flex bg-primary/15 text-primary border border-primary/20 font-black px-3 py-1 rounded-full uppercase text-[9px] tracking-widest">
-                      Secure Link
+                    <Badge className="hidden sm:inline-flex bg-primary/10 text-primary border border-primary/25 font-medium px-2.5 py-0.5 rounded-md text-[11px]">
+                      Encrypted
                     </Badge>
                   </div>
                 </div>
               </CardHeader>
 
               {/* Scrollable Messages Area */}
-              <CardContent className="flex-1 min-h-0 overflow-y-auto px-3.5 py-4 md:p-6 space-y-3.5 bg-black/20 scroll-smooth no-scrollbar">
+              <CardContent className="flex-1 min-h-0 overflow-y-auto px-3.5 py-4 md:p-5 space-y-3 bg-[#05080D]/60 scroll-smooth no-scrollbar">
                 {messages.length === 0 && (
-                  <div className="h-full flex flex-col items-center justify-center text-center space-y-4 py-10 px-6">
-                    <div className="size-16 bg-primary/10 border border-primary/20 rounded-2xl flex items-center justify-center">
-                      <MessageSquare size={30} className="text-primary" />
+                  <div className="h-full flex flex-col items-center justify-center text-center space-y-3 py-10 px-6">
+                    <div className="size-14 bg-primary/10 border border-primary/20 rounded-2xl flex items-center justify-center">
+                      <MessageSquare size={26} className="text-primary" />
                     </div>
-                    <div className="space-y-1.5">
-                      <h4 className="text-lg font-black italic uppercase text-white">Start a Conversation</h4>
-                      <p className="text-xs font-medium text-white/50 leading-relaxed max-w-xs">
-                        Send a message below to connect directly with our GoldBrick wealth & support team.
+                    <div className="space-y-1">
+                      <h4 className="text-base font-semibold text-white">Start a Conversation</h4>
+                      <p className="text-xs text-white/50 leading-relaxed max-w-xs">
+                        Send a message below to connect directly with our GoldBrick support desk.
                       </p>
                     </div>
                   </div>
@@ -454,25 +454,25 @@ export default function SupportPage() {
                   return (
                     <div
                       key={m.id || i}
-                      className={`flex ${isMine ? 'justify-end' : 'justify-start'} animate-in fade-in slide-in-from-bottom-1`}
+                      className={`flex ${isMine ? 'justify-end' : 'justify-start'}`}
                     >
                       <div
-                        className={`max-w-[85%] sm:max-w-[78%] px-4 py-3 rounded-2xl text-sm md:text-[15px] shadow-sm ${
+                        className={`max-w-[85%] sm:max-w-[78%] px-3.5 py-2.5 rounded-2xl text-sm shadow-sm ${
                           isMine
-                            ? 'bg-primary text-primary-foreground font-semibold rounded-tr-sm shadow-primary/10'
-                            : 'bg-card text-white/95 border border-border rounded-tl-sm font-normal'
+                            ? 'bg-primary text-slate-950 font-medium rounded-tr-sm'
+                            : 'bg-[#121824] text-white/95 border border-white/10 rounded-tl-sm'
                         }`}
                       >
                         {!isMine && m.isAutoReply && (
-                          <div className="inline-flex items-center gap-1 text-[9px] font-black uppercase tracking-wider text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded-full mb-1.5">
+                          <div className="inline-flex items-center gap-1 text-[10px] font-medium text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded-md mb-1.5">
                             <Zap className="size-2.5" />
                             Auto Quick Reply
                           </div>
                         )}
                         <p className="leading-relaxed whitespace-pre-wrap break-words">{m.text}</p>
                         <div
-                          className={`flex items-center justify-end gap-1.5 text-[10px] mt-1.5 font-mono ${
-                            isMine ? 'text-primary-foreground/70' : 'text-white/35'
+                          className={`flex items-center justify-end gap-1 text-[10px] mt-1 font-mono tabular-nums ${
+                            isMine ? 'text-slate-900/70' : 'text-white/40'
                           }`}
                         >
                           <span>
@@ -495,11 +495,11 @@ export default function SupportPage() {
               </CardContent>
 
               {/* Sticky Mobile-Friendly Composer */}
-              <div className="p-3 md:p-4 border-t border-border bg-card shrink-0">
-                <form onSubmit={handleSendMessage} className="flex items-center gap-2 md:gap-3">
+              <div className="p-3 md:p-4 border-t border-white/[0.08] bg-[#0A0F18] shrink-0">
+                <form onSubmit={handleSendMessage} className="flex items-center gap-2.5">
                   <Input
                     placeholder="Type your message..."
-                    className="bg-background border-border flex-1 h-12 md:h-13 text-white placeholder:text-white/30 font-medium px-4 rounded-xl md:rounded-2xl text-sm md:text-base focus-visible:ring-1 focus-visible:ring-primary/50"
+                    className="bg-black/40 border-white/10 flex-1 h-11 md:h-12 text-white placeholder:text-white/35 px-4 rounded-xl text-sm focus-visible:ring-1 focus-visible:ring-primary/50"
                     value={input}
                     onChange={(e) => setInput(e.target.value)}
                   />
@@ -507,39 +507,37 @@ export default function SupportPage() {
                     type="submit"
                     disabled={!input.trim() || sending}
                     size="icon"
-                    className="size-12 md:size-13 bg-primary text-primary-foreground rounded-xl md:rounded-2xl shadow-lg shadow-primary/25 hover:scale-105 active:scale-95 transition-all shrink-0 cursor-pointer disabled:opacity-50"
+                    className="size-11 md:size-12 bg-primary text-slate-950 hover:bg-amber-400 rounded-xl shadow-lg shadow-primary/20 transition-all shrink-0 cursor-pointer disabled:opacity-50"
                   >
-                    <Send className="size-5" />
+                    <Send className="size-4.5" />
                   </Button>
                 </form>
               </div>
             </Card>
           </div>
 
-          {/* Desktop Side Cards (moved to Info dialog on mobile/tablet so chat stays full-page) */}
-          <div className="hidden xl:flex flex-col gap-6 overflow-y-auto no-scrollbar">
-            <Card className="bg-card border-border shadow-xl rounded-[2rem] border-t-4 border-t-primary border">
-              <CardHeader className="p-6 pb-2">
-                <CardTitle className="text-lg font-black italic uppercase tracking-tighter text-white">
-                  GoldBrick Directives
-                </CardTitle>
+          {/* Desktop Side Cards */}
+          <div className="hidden xl:flex flex-col gap-5 overflow-y-auto no-scrollbar">
+            <Card className="bg-[#0A0F18]/90 border-white/10 shadow-xl rounded-2xl">
+              <CardHeader className="p-5 pb-2">
+                <CardTitle className="text-base font-semibold text-white">Security Guidelines</CardTitle>
               </CardHeader>
-              <CardContent className="p-6 space-y-4">
-                <div className="flex gap-3.5 p-4 bg-white/5 rounded-2xl border border-border">
+              <CardContent className="p-5 space-y-3">
+                <div className="flex gap-3 p-3.5 bg-white/[0.03] rounded-xl border border-white/[0.07]">
                   <ShieldCheck className="text-primary size-5 shrink-0 mt-0.5" />
                   <div className="space-y-1">
-                    <h5 className="font-black italic uppercase text-xs text-white">Zero-Trust Protocol</h5>
-                    <p className="text-[10px] text-white/45 font-bold leading-relaxed uppercase tracking-tight">
-                      Our staff will NEVER ask for passwords, private keys, or seed phrases.
+                    <h5 className="font-semibold text-xs text-white">Zero-Trust Protocol</h5>
+                    <p className="text-xs text-white/50 leading-relaxed">
+                      Our staff will never ask for your password, private keys, or recovery phrase.
                     </p>
                   </div>
                 </div>
-                <div className="flex gap-3.5 p-4 bg-white/5 rounded-2xl border border-border">
-                  <WhatsApp className="text-green-500 size-5 shrink-0 mt-0.5" />
+                <div className="flex gap-3 p-3.5 bg-white/[0.03] rounded-xl border border-white/[0.07]">
+                  <WhatsApp className="text-[#25D366] size-5 shrink-0 mt-0.5" />
                   <div className="space-y-1">
-                    <h5 className="font-black italic uppercase text-xs text-white">Priority Uplink</h5>
-                    <p className="text-[10px] text-white/45 font-bold leading-relaxed uppercase tracking-tight">
-                      Use WhatsApp for immediate assistance regarding pending deposits.
+                    <h5 className="font-semibold text-xs text-white">Priority Escalation</h5>
+                    <p className="text-xs text-white/50 leading-relaxed">
+                      Use WhatsApp support for urgent assistance regarding pending deposits or verification.
                     </p>
                   </div>
                 </div>
@@ -553,51 +551,36 @@ export default function SupportPage() {
               onClick={(e) => {
                 if (!config?.whatsappLink) {
                   e.preventDefault();
-                  toast.info('Emergency support is only available via the direct link provided by our administrators.');
+                  toast.info('Direct escalation link is managed by administrators.');
                 }
               }}
-              className={`block group transition-all active:scale-95 ${
-                !config?.whatsappLink ? 'cursor-not-allowed opacity-60' : ''
-              }`}
+              className={`block transition-all ${!config?.whatsappLink ? 'cursor-not-allowed opacity-60' : ''}`}
             >
               <Card
-                className={`bg-card border-border shadow-2xl rounded-[2rem] overflow-hidden transition-all duration-500 border ${
-                  config?.whatsappLink ? 'hover:border-primary/50 hover:bg-white/5' : ''
+                className={`bg-[#0A0F18]/90 border-white/10 shadow-xl rounded-2xl overflow-hidden transition-all ${
+                  config?.whatsappLink ? 'hover:border-[#25D366]/50' : ''
                 }`}
               >
-                <div className={`h-2 bg-[#25D366] ${config?.whatsappLink ? '' : 'grayscale'}`} />
-                <CardContent className="p-6 text-center space-y-4">
-                  <div className="flex justify-center">
-                    <div
-                      className={`size-14 rounded-2xl flex items-center justify-center ${
-                        config?.whatsappLink ? 'bg-[#25D366] text-white shadow-xl' : 'bg-white/5 text-slate-300'
-                      }`}
-                    >
-                      <WhatsApp className="size-7" />
-                    </div>
+                <CardContent className="p-5 text-center space-y-3.5">
+                  <div
+                    className={`size-12 mx-auto rounded-xl flex items-center justify-center ${
+                      config?.whatsappLink ? 'bg-[#25D366] text-white' : 'bg-white/5 text-white/40'
+                    }`}
+                  >
+                    <WhatsApp className="size-6" />
                   </div>
-                  <div className="space-y-1.5">
-                    <div
-                      className={`font-black uppercase italic tracking-tighter text-lg ${
-                        config?.whatsappLink ? 'vibrant-text' : 'text-white/20'
-                      }`}
-                    >
-                      Emergency Support
-                    </div>
-                    <p className="text-[10px] text-white/45 font-bold leading-relaxed uppercase tracking-widest">
-                      24/7 response unit for account security & liquidity inquiries.
+                  <div className="space-y-1">
+                    <div className="font-semibold text-base text-white">WhatsApp Desk</div>
+                    <p className="text-xs text-white/50 leading-relaxed">
+                      24/7 rapid response channel for account security &amp; liquidity support.
                     </p>
                   </div>
                   <Button
-                    variant="ghost"
+                    variant="outline"
                     disabled={!config?.whatsappLink}
-                    className={`w-full font-black uppercase text-[10px] tracking-[0.2em] h-10 rounded-xl ${
-                      config?.whatsappLink
-                        ? 'text-primary hover:bg-primary/5 border border-primary/20'
-                        : 'text-white/20 border border-white/10'
-                    }`}
+                    className="w-full h-10 rounded-xl border-white/10 text-xs font-medium text-white hover:bg-white/[0.06]"
                   >
-                    {config?.whatsappLink ? 'INITIATE UPLINK' : 'LINK STANDBY'}
+                    {config?.whatsappLink ? 'Open WhatsApp Support' : 'Link Standby'}
                   </Button>
                 </CardContent>
               </Card>
@@ -606,24 +589,22 @@ export default function SupportPage() {
         </div>
       </div>
 
-      {/* Mobile Info Modal for GoldBrick Directives & Emergency Support */}
+      {/* Mobile Info Modal */}
       <Dialog open={isInfoOpen} onOpenChange={setIsInfoOpen}>
-        <DialogContent className="bg-card border-border text-white sm:max-w-md rounded-3xl p-6">
+        <DialogContent className="bg-[#0A0F18] border-white/10 text-white sm:max-w-md rounded-2xl p-6">
           <DialogHeader>
-            <DialogTitle className="text-lg font-black italic uppercase tracking-tight text-white">
-              Support Guidelines
-            </DialogTitle>
+            <DialogTitle className="text-lg font-semibold text-white">Support Guidelines</DialogTitle>
             <DialogDescription className="text-xs text-white/50">
-              Security rules & direct escalation channels.
+              Security rules &amp; direct escalation channels.
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3 py-2">
-            <div className="flex gap-3 p-4 bg-white/5 rounded-2xl border border-border">
+            <div className="flex gap-3 p-4 bg-white/[0.03] rounded-xl border border-white/[0.08]">
               <ShieldCheck className="text-primary size-5 shrink-0 mt-0.5" />
               <div className="space-y-1">
-                <h5 className="font-black italic uppercase text-xs text-white">Zero-Trust Protocol</h5>
-                <p className="text-[11px] text-white/60 leading-relaxed">
-                  GoldBrick staff will NEVER ask for passwords, private keys, or seed phrases.
+                <h5 className="font-semibold text-xs text-white">Zero-Trust Protocol</h5>
+                <p className="text-xs text-white/60 leading-relaxed">
+                  GoldBrick staff will never ask for passwords, private keys, or seed phrases.
                 </p>
               </div>
             </div>
@@ -632,9 +613,9 @@ export default function SupportPage() {
                 href={config.whatsappLink}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="flex items-center justify-center gap-2.5 w-full h-12 rounded-2xl bg-[#25D366] text-white font-black uppercase text-xs tracking-wider"
+                className="flex items-center justify-center gap-2 w-full h-11 rounded-xl bg-[#25D366] text-white font-semibold text-xs"
               >
-                <WhatsApp className="size-5" /> Open WhatsApp Support
+                <WhatsApp className="size-4.5" /> Open WhatsApp Support
               </a>
             )}
           </div>

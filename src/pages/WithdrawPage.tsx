@@ -3,18 +3,18 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../co
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
-import { ShieldAlert, ArrowUpRight, HelpCircle, DollarSign, Wallet, ArrowUpCircle, Lock, ShieldCheck } from 'lucide-react';
+import { ArrowUpCircle, DollarSign, Wallet, Lock, ShieldCheck, ArrowRight } from 'lucide-react';
 import DashboardLayout from '../components/DashboardLayout';
 import { db } from '../lib/firebase';
 import { useAuth } from '../lib/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'sonner';
 import { handleFirestoreError, OperationType } from '../lib/errorHandlers';
-import { 
-  collection, 
-  doc, 
-  onSnapshot, 
-  serverTimestamp, 
+import {
+  collection,
+  doc,
+  onSnapshot,
+  serverTimestamp,
   increment,
   writeBatch
 } from 'firebase/firestore';
@@ -41,9 +41,8 @@ export default function WithdrawPage() {
     const val = parseFloat(amount) || 0;
     if (config.withdrawalFeeType === 'fixed') {
       return config.withdrawalFee || 0;
-    } else {
-      return (val * (config.withdrawalFee || 0) / 100);
     }
+    return (val * (config.withdrawalFee || 0)) / 100;
   };
 
   const handleWithdraw = async () => {
@@ -53,13 +52,13 @@ export default function WithdrawPage() {
     if (isNaN(val) || val < (config.minWithdrawal || 0) || val > (config.maxWithdrawal || Infinity)) {
       return toast.error(`Amount must be between $${config.minWithdrawal?.toLocaleString()} and $${config.maxWithdrawal?.toLocaleString()}`);
     }
-    
+
     if ((userData.balance || 0) < val) {
-      return toast.error('You do not have enough money in your balance');
+      return toast.error('Insufficient balance for this withdrawal');
     }
-    
+
     if (!wallet || wallet.length < 10) {
-      return toast.error('Please enter a valid wallet address');
+      return toast.error('Please enter a valid destination wallet address');
     }
 
     setLoading(true);
@@ -69,18 +68,16 @@ export default function WithdrawPage() {
 
       if (netAmount <= 0) {
         setLoading(false);
-        return toast.error('Amount is too small to cover fees');
+        return toast.error('Amount is too small to cover withdrawal fees');
       }
 
       const batch = writeBatch(db);
-      
-      // Deduct from balance
+
       const userRef = doc(db, 'users', userData.uid);
       batch.update(userRef, {
         balance: increment(-val)
       });
 
-      // Create withdrawal request
       const txRef = doc(collection(db, 'transactions'));
       batch.set(txRef, {
         userId: userData.uid,
@@ -88,159 +85,215 @@ export default function WithdrawPage() {
         userEmail: userData.email,
         type: 'withdrawal',
         amount: val,
-        fee: fee,
-        netAmount: netAmount,
-        currency: currency,
+        fee,
+        netAmount,
+        currency,
         walletAddress: wallet,
         status: 'pending',
         createdAt: serverTimestamp()
       });
 
-      await batch.commit()
-        .catch(e => handleFirestoreError(e, OperationType.WRITE, 'Withdrawal Batch'));
+      await batch.commit().catch((e) => handleFirestoreError(e, OperationType.WRITE, 'Withdrawal Batch'));
 
-      toast.success('Withdrawal request sent! Waiting for approval.');
+      toast.success('Withdrawal request submitted! Waiting for processing.');
       navigate('/transactions');
-    } catch (e: any) {
+    } catch {
       toast.error('Withdrawal failed. Please try again.');
     } finally {
       setLoading(false);
     }
   };
 
+  const parsedAmount = parseFloat(amount) || 0;
   const fee = calculateFee();
-  const netPayout = Math.max(0, (parseFloat(amount) || 0) - fee);
+  const netPayout = Math.max(0, parsedAmount - fee);
 
   return (
     <DashboardLayout>
-      <div className="max-w-5xl mx-auto space-y-12 pb-12">
-        <header className="space-y-3">
-          <h1 className="text-3xl md:text-5xl font-black italic tracking-tighter uppercase vibrant-text leading-tight flex items-center gap-4">
-             <ArrowUpCircle className="text-primary size-8 md:size-12" /> Liquidate Assets
-          </h1>
-          <p className="text-white/40 font-bold text-[10px] md:text-xs uppercase tracking-[0.3em]">Convert your mining yields into external liquidity.</p>
+      <div className="max-w-5xl mx-auto space-y-6 pb-10">
+        {/* Header */}
+        <header className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 pb-4 border-b border-white/[0.08]">
+          <div className="space-y-1.5">
+            <div className="flex items-center gap-2 text-xs font-medium text-primary">
+              <ArrowUpCircle className="size-3.5" />
+              <span>External Payouts</span>
+            </div>
+            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-white">Withdraw Funds</h1>
+            <p className="text-sm text-white/55">
+              Transfer available profits or principal directly to your external crypto wallet.
+            </p>
+          </div>
+          <div className="px-4 py-2.5 rounded-xl bg-[#0A0F18] border border-white/10 text-xs font-mono tabular-nums">
+            <span className="text-white/45 block text-[11px]">Available to Withdraw</span>
+            <span className="text-base font-bold text-white">
+              ${(userData?.balance || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </span>
+          </div>
         </header>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-10">
-          <div className="lg:col-span-2 space-y-8">
-            <Card className="bg-card border-border shadow-2xl rounded-[3.5rem] overflow-hidden border-t-8 border-t-primary border">
-              <CardContent className="p-10 md:p-14 space-y-10">
-                <div className="space-y-4">
-                   <div className="flex justify-between items-end px-2">
-                     <Label className="text-[10px] text-white/40 font-black uppercase tracking-widest">Withdrawal Volume (USD)</Label>
-                     <span className="text-[10px] text-white/60 font-mono font-bold uppercase tracking-widest italic">AVAILABLE: ${userData?.balance?.toLocaleString()}.00</span>
-                   </div>
-                   <div className="relative group">
-                     <DollarSign className="absolute left-8 top-1/2 -translate-y-1/2 size-10 text-white/10 group-focus-within:text-primary transition-colors" />
-                     <Input 
-                       type="number" 
-                       placeholder="0.00"
-                       className="bg-background border-border h-20 md:h-24 text-3xl md:text-5xl font-black font-mono text-white pl-20 md:pl-24 rounded-[2rem] focus:ring-1 focus:ring-primary/20 shadow-inner border-2 italic tracking-tighter placeholder:text-white/5"
-                       value={amount}
-                       onChange={(e) => setAmount(e.target.value)}
-                     />
-                   </div>
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+          {/* Left Form (7 cols) */}
+          <div className="lg:col-span-7 space-y-5">
+            <Card className="bg-[#0A0F18]/90 border-white/10 rounded-2xl shadow-xl">
+              <CardHeader className="p-5 sm:p-6 pb-4 border-b border-white/[0.06]">
+                <CardTitle className="text-base sm:text-lg font-semibold text-white">Payout Details</CardTitle>
+                <CardDescription className="text-xs text-white/50">
+                  Min: ${config?.minWithdrawal?.toLocaleString() || 100} · Max: ${config?.maxWithdrawal?.toLocaleString() || '50,000'}
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="p-5 sm:p-6 space-y-5">
+                {/* Currency Selection */}
+                <div className="space-y-2">
+                  <Label className="text-xs font-medium text-white/75">Select Payout Asset</Label>
+                  <div className="grid grid-cols-3 gap-3">
+                    {[
+                      { code: 'BTC', name: 'Bitcoin' },
+                      { code: 'ETH', name: 'Ethereum' },
+                      { code: 'USDT', name: 'Tether (USDT)' }
+                    ].map((c) => {
+                      const active = currency === c.code;
+                      return (
+                        <button
+                          key={c.code}
+                          type="button"
+                          onClick={() => setCurrency(c.code)}
+                          className={`p-3.5 rounded-xl border text-center transition-all cursor-pointer ${
+                            active
+                              ? 'bg-amber-500/10 border-primary text-white'
+                              : 'bg-white/[0.02] border-white/[0.08] text-white/65 hover:border-white/20 hover:text-white'
+                          }`}
+                        >
+                          <div className={`text-sm font-bold font-mono ${active ? 'text-primary' : 'text-white'}`}>
+                            {c.code}
+                          </div>
+                          <div className="text-[11px] text-white/45 mt-0.5">{c.name}</div>
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
 
-                <div className="space-y-4">
-                   <Label className="text-[10px] text-white/40 font-black uppercase tracking-widest px-2">Select Currency Platform</Label>
-                   <div className="grid grid-cols-3 gap-4">
-                      {['BTC', 'ETH', 'USDT'].map(c => (
-                         <div 
-                           key={c}
-                           onClick={() => setCurrency(c)}
-                           className={`p-6 rounded-2xl border-2 cursor-pointer transition-all flex flex-col items-center justify-center gap-2 group ${currency === c ? 'border-primary bg-primary/5 shadow-lg' : 'border-white/5 bg-card hover:border-primary/20'}`}
-                         >
-                            <span className={`text-lg font-black italic tracking-tighter ${currency === c ? 'text-primary' : 'text-white/40'}`}>{c}</span>
-                            {currency === c && <div className="size-2 bg-primary rounded-full animate-pulse" />}
-                         </div>
-                      ))}
-                   </div>
+                {/* Amount Input */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between text-xs">
+                    <Label htmlFor="withdrawAmount" className="text-white/75 font-medium">
+                      Withdrawal Amount (USD)
+                    </Label>
+                    <button
+                      type="button"
+                      onClick={() => setAmount(String(Math.floor(userData?.balance || 0)))}
+                      className="text-primary hover:underline font-mono cursor-pointer"
+                    >
+                      Max: ${(userData?.balance || 0).toLocaleString()}
+                    </button>
+                  </div>
+                  <div className="relative">
+                    <DollarSign className="absolute left-3.5 top-1/2 -translate-y-1/2 size-4.5 text-primary" />
+                    <Input
+                      id="withdrawAmount"
+                      type="number"
+                      placeholder="0.00"
+                      className="bg-black/40 border-white/10 h-12 pl-10 rounded-xl font-mono tabular-nums font-bold text-lg text-white"
+                      value={amount}
+                      onChange={(e) => setAmount(e.target.value)}
+                    />
+                  </div>
                 </div>
 
-                <div className="space-y-4">
-                   <Label className="text-[10px] text-white/40 font-black uppercase tracking-widest px-2">Destination Address ({currency})</Label>
-                   <div className="relative group">
-                      <Wallet className="absolute left-6 top-1/2 -translate-y-1/2 size-6 text-white/20 group-focus-within:text-primary transition-colors" />
-                      <Input 
-                        placeholder={`Paste your ${currency} wallet address here`}
-                        className="bg-card border-border h-16 text-sm font-bold font-mono text-white pl-16 rounded-2xl focus:ring-1 focus:ring-primary/20 shadow-inner border-2 italic transition-all"
-                        value={wallet}
-                        onChange={(e) => setWallet(e.target.value)}
-                      />
-                   </div>
+                {/* Wallet Input */}
+                <div className="space-y-2">
+                  <Label htmlFor="destWallet" className="text-xs font-medium text-white/75">
+                    Destination {currency} Wallet Address
+                  </Label>
+                  <div className="relative">
+                    <Wallet className="absolute left-3.5 top-1/2 -translate-y-1/2 size-4 text-white/40" />
+                    <Input
+                      id="destWallet"
+                      placeholder={`Enter your ${currency} receiving address`}
+                      className="bg-black/40 border-white/10 h-12 pl-10 rounded-xl font-mono text-xs sm:text-sm text-white placeholder:text-white/25"
+                      value={wallet}
+                      onChange={(e) => setWallet(e.target.value)}
+                    />
+                  </div>
                 </div>
 
-                <Button 
-                  className="w-full h-16 md:h-20 bg-primary text-primary-foreground font-black text-[10px] md:text-base uppercase tracking-widest rounded-[1.5rem] hover:scale-[1.02] active:scale-95 transition-all shadow-2xl shadow-primary/30 flex items-center justify-center"
+                <Button
+                  type="button"
                   onClick={handleWithdraw}
                   disabled={loading || !amount || !wallet}
+                  className="w-full h-12 bg-primary text-slate-950 hover:bg-amber-400 font-semibold text-sm rounded-xl shadow-lg shadow-primary/20 cursor-pointer"
                 >
-                  {loading ? 'PROCESSING LIQUIDATION...' : 'EXECUTE WITHDRAWAL'}
+                  {loading ? 'Processing Request...' : 'Submit Withdrawal Request'}
+                  <ArrowRight className="size-4 ml-1.5" />
                 </Button>
               </CardContent>
             </Card>
 
-            <div className="flex items-start gap-6 p-8 bg-white/5 border border-border rounded-[2.5rem] shadow-sm">
-                <ShieldCheck className="size-12 text-primary/20 shrink-0" />
-                <p className="text-[10px] text-white/40 leading-relaxed tracking-tight font-bold uppercase italic">
-                  WITHDRAWAL PROTOCOL: FUNDS ARE TRANSFERRED VIA GOLDBRICK LIQUIDITY NODES. THE SYSTEM AUTOMATICALLY AUDITS EVERY TRANSACTION FOR SECURITY COMPLIANCE. 
-                  INCORRECT WALLET ADDRESSES MAY RESULT IN PERMANENT ASSET IONIZATION.
-                </p>
+            <div className="flex items-start gap-3 p-4 rounded-2xl bg-white/[0.02] border border-white/[0.07] text-xs text-white/55 leading-relaxed">
+              <ShieldCheck className="size-4 text-primary shrink-0 mt-0.5" />
+              <span>
+                Please verify your receiving address carefully before submitting. Blockchain transfers are irreversible once processed.
+              </span>
             </div>
           </div>
 
-          <div className="space-y-8">
-            <Card className="bg-card border-border shadow-xl rounded-[2.5rem] border-t-4 border-t-primary border">
-              <CardHeader className="p-8 pb-2">
-                <CardTitle className="text-xl font-black italic uppercase tracking-tighter text-white">Transaction Summary</CardTitle>
+          {/* Right Summary (5 cols) */}
+          <div className="lg:col-span-5 space-y-5">
+            <Card className="bg-[#0A0F18]/90 border-white/10 rounded-2xl shadow-xl">
+              <CardHeader className="p-5 sm:p-6 pb-4 border-b border-white/[0.06]">
+                <CardTitle className="text-base font-semibold text-white">Payout Summary</CardTitle>
               </CardHeader>
-              <CardContent className="p-8 pt-4 space-y-6">
-                <div className="space-y-4">
-                   <div className="flex justify-between items-center py-3 border-b border-white/5">
-                      <span className="text-[10px] font-black uppercase text-white/40 tracking-widest">Gross Amount</span>
-                      <span className="text-sm font-black text-white font-mono italic">${(parseFloat(amount) || 0).toLocaleString()}.00</span>
-                   </div>
-                   <div className="flex justify-between items-center py-3 border-b border-white/5">
-                      <span className="text-[10px] font-black uppercase text-white/40 tracking-widest">Protocol Fee ({config?.withdrawalFeeType === 'fixed' ? 'FIXED' : `${config?.withdrawalFee}%`})</span>
-                      <span className="text-sm font-black text-red-500 font-mono italic">-${fee.toLocaleString()}</span>
-                   </div>
+              <CardContent className="p-5 sm:p-6 space-y-4">
+                <div className="space-y-3 text-sm font-mono tabular-nums">
+                  <div className="flex justify-between items-center py-2 border-b border-white/[0.06]">
+                    <span className="text-xs font-sans text-white/50">Requested Amount</span>
+                    <span className="text-white font-semibold">
+                      ${parsedAmount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center py-2 border-b border-white/[0.06]">
+                    <span className="text-xs font-sans text-white/50">
+                      Network Fee ({config?.withdrawalFeeType === 'fixed' ? 'Fixed' : `${config?.withdrawalFee || 0}%`})
+                    </span>
+                    <span className="text-red-400 font-semibold">
+                      -${fee.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </span>
+                  </div>
                 </div>
 
-                <div className="bg-white/5 rounded-2xl p-6 border border-border space-y-2 flex flex-col justify-center">
-                    <span className="text-[10px] text-white/40 font-black uppercase tracking-widest mb-1 italic">Net Payout</span>
-                    <span className="text-3xl font-black text-white font-mono tracking-tighter italic">${netPayout.toLocaleString()}</span>
-                    <div className="flex items-center gap-2 mt-2">
-                       <span className="text-[10px] text-primary font-black uppercase italic tracking-widest">Target Account Reached</span>
-                       <div className="size-1.5 rounded-full bg-primary animate-pulse" />
-                    </div>
+                <div className="p-4 rounded-xl bg-white/[0.04] border border-white/10 space-y-1">
+                  <span className="text-xs text-white/50">Estimated Net Payout</span>
+                  <div className="text-2xl sm:text-3xl font-bold font-mono tabular-nums text-emerald-400">
+                    ${netPayout.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </div>
+                  <span className="text-xs text-white/45 block">Asset: {currency}</span>
                 </div>
 
-                <div className="space-y-4 pt-4">
-                   <div className="flex justify-between items-center px-1">
-                      <span className="text-[10px] text-white/40 font-bold uppercase tracking-widest">Min Entry</span>
-                      <span className="text-[11px] text-white font-black italic tracking-tighter font-mono">${config?.minWithdrawal || 100}</span>
-                   </div>
-                   <div className="flex justify-between items-center px-1">
-                      <span className="text-[10px] text-white/40 font-bold uppercase tracking-widest">Processing</span>
-                      <span className="text-[11px] text-primary font-black italic tracking-tighter">INSTANT NODE</span>
-                   </div>
+                <div className="pt-2 space-y-2 text-xs">
+                  <div className="flex justify-between text-white/55">
+                    <span>Minimum Withdrawal</span>
+                    <span className="font-mono text-white">${config?.minWithdrawal || 100}</span>
+                  </div>
+                  <div className="flex justify-between text-white/55">
+                    <span>Processing Speed</span>
+                    <span className="text-emerald-400 font-medium">Under 15 Minutes</span>
+                  </div>
                 </div>
               </CardContent>
             </Card>
 
-            <Card className="bg-card border-border shadow-2xl rounded-[2.5rem] overflow-hidden group">
-               <CardContent className="p-10 space-y-6">
-                  <div className="size-16 bg-primary/20 rounded-[1.5rem] flex items-center justify-center transition-transform group-hover:rotate-12 duration-700">
-                     <Lock className="text-primary size-8" />
-                  </div>
-                  <div className="space-y-2">
-                     <h4 className="text-white font-black uppercase italic text-2xl tracking-tighter">Secure Vault</h4>
-                     <p className="text-white/40 text-[10px] font-bold leading-relaxed uppercase tracking-widest italic">
-                        Liquidations are secured by multi-signature cold storage clusters.
-                     </p>
-                  </div>
-               </CardContent>
+            <Card className="bg-[#0A0F18]/90 border-white/10 rounded-2xl">
+              <CardContent className="p-5 flex items-start gap-3.5">
+                <div className="size-10 rounded-xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary shrink-0">
+                  <Lock className="size-5" />
+                </div>
+                <div className="space-y-1">
+                  <h4 className="text-sm font-semibold text-white">Multi-Signature Cold Vaults</h4>
+                  <p className="text-xs text-white/50 leading-relaxed">
+                    Every withdrawal passes automated compliance and multi-sig settlement checks to safeguard your assets.
+                  </p>
+                </div>
+              </CardContent>
             </Card>
           </div>
         </div>
